@@ -362,3 +362,12 @@
 - 确认同逻辑方案固定选取最高等级实体，且 `A&B`、`B&A` 保持不同方案身份。
 - 在 `desktop` 目录运行 `npm run test:solver-oracle`：7 组 P0 定向回归、多重集/身份检查和 120 组随机全量穷举全部通过。
 - 最终判断：求解成功时返回全局最优有序 Top-K；超过 25,000 状态、50,000 变体或 6 秒预算时明确失败，因而不是“任意合法输入都保证返回最优解”。
+# 2026-07-23 Windows v0.2.0 可用版
+
+- 在读取存档按钮旁增加 `%LOCALAPPDATA%\GBFR\Saved\SaveGames\`、`SaveData1.dat` 和多文件选择说明。
+- 求解预算调整为 30 秒 / 50,000 状态 / 100,000 变体，Renderer Worker 35 秒强制回收。
+- Windows 宽屏技能池由固定 `max-height` 改为填充父容器，窄屏继续使用受控视口高度。
+- 新增 `renderer-regressions.test.mjs`，完整求解 oracle 通过。
+- 用户真实存档回归：401 个因子，14,550 状态，15 次 p95 181 ms，GC 后堆增长 0 MiB。
+- Windows x64 包生成成功，ZIP 173 MiB，PE32+ x86-64。
+- 错误记录：首次运行 `shasum -c release/SHA256SUMS.txt` 时工作目录错误，清单中的相对路径无法解析；改在 `release/` 目录执行。

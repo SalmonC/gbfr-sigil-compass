@@ -6,12 +6,8 @@ const repositoryRoot = path.resolve(import.meta.dirname, '..');
 const releaseRoot = path.join(repositoryRoot, 'release');
 const artifacts = [
   {
-    source: path.join(repositoryRoot, 'desktop/out/make/zip/win32/x64/Sigil Compass-win32-x64-0.1.0.zip'),
-    name: 'Sigil-Compass-0.1.0-win-x64-portable.zip'
-  },
-  {
-    source: path.join(repositoryRoot, 'desktop/out/make/zip/darwin/arm64/Sigil Compass-darwin-arm64-0.1.0.zip'),
-    name: 'Sigil-Compass-0.1.0-macos-arm64.zip'
+    source: path.join(repositoryRoot, 'desktop/out/make/zip/win32/x64/Sigil Compass-win32-x64-0.2.0.zip'),
+    name: 'Sigil-Compass-0.2.0-win-x64-portable.zip'
   }
 ];
 

@@ -99,7 +99,7 @@ function solveInWorker(request: SolverRequest): Promise<SolverAnalysis> {
         if (!pendingSolverRequests.has(requestId)) return;
         rejectPendingSolverRequests('solver.resource_limit');
         if (worker) disposeSolverWorker(worker);
-      }, 8_000);
+      }, 35_000);
       pendingSolverRequests.set(requestId, { resolve, reject, timeoutId });
       worker.postMessage({ requestId, request });
     } catch (error) {
@@ -634,7 +634,7 @@ function App() {
       activeRunRef.current = null;
       const errorCode = error instanceof Error ? error.message : '未知错误';
       const message = errorCode === 'solver.resource_limit'
-        ? '目标组合过于复杂，已在安全限制内停止计算。请减少可选目标，或增加“不能出现”的技能后重试。'
+        ? '这组目标在 30 秒或安全容量内没有算完。可以减少可选目标，或增加“不能出现”的技能后重试。'
         : errorCode;
       dispatchAnalysis({ type: 'reject', runId, message });
       setNotice(`计算失败：${message}`);
@@ -901,6 +901,7 @@ function App() {
       <button className="secondary-action" type="button" disabled={importing} onClick={() => void importSave()}>
         <FileUp size={17} />{importing ? '读取中…' : '读取存档'}
       </button>
+      <HelpPopover label="存档位置" text={'Windows 默认位置：%LOCALAPPDATA%\\GBFR\\Saved\\SaveGames\\。通常选择 SaveData1.dat；如果有多个 SaveData*.dat，请选择修改时间最新的一个。应用只读取，不会修改存档；操作前仍建议自行备份。'} />
       <div className="inventory-summary">{inventory
         ? <><Database size={17} /><strong>{inventory.sigils.length}</strong> 个双词条因子 · {analysisContext?.availableInventory.length ?? 0} 个当前可用
           {inventory.cachedAt && <span>· 读取于 {new Date(inventory.cachedAt).toLocaleString('zh-CN')}</span>}</>

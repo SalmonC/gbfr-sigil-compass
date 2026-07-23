@@ -124,5 +124,5 @@ const wideReport = {
   rssMiB: Number((wideMemory.rss / 1024 / 1024).toFixed(1))
 };
 process.stdout.write(`${JSON.stringify({ wideProfileSafety: wideReport }, null, 2)}\n`);
-assert.ok(wideElapsedMs < 8_000, `wide profile exceeded safety window: ${wideElapsedMs} ms`);
+assert.ok(wideElapsedMs < 32_000, `wide profile exceeded safety window: ${wideElapsedMs} ms`);
 assert.ok(wideMemory.rss < 512 * 1024 * 1024, `wide profile RSS exceeded 512 MiB: ${wideReport.rssMiB} MiB`);

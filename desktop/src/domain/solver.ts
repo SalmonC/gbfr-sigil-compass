@@ -33,9 +33,9 @@ interface EvaluatedCoverage {
 // The exact dynamic program is intentionally bounded. Some legal 24-target
 // profiles are exponential set-cover instances; failing them explicitly is safer
 // than exhausting the renderer process and losing the whole UI.
-const MAX_LAYER_STATES = 25_000;
-const MAX_LAYER_VARIANTS = 50_000;
-const MAX_SOLVE_MILLISECONDS = 6_000;
+const MAX_LAYER_STATES = 50_000;
+const MAX_LAYER_VARIANTS = 100_000;
+const MAX_SOLVE_MILLISECONDS = 30_000;
 
 function hashNumber(value: string): number {
   return Number.parseInt(value.slice(2), 16) >>> 0;

@@ -80,7 +80,7 @@ h1 { font-size: 23px; letter-spacing: .04em; margin: 0 0 2px; }
 
 .workspace { display: grid; grid-template-columns: minmax(340px, .82fr) minmax(0, 1.38fr); gap: 12px; min-height: 610px; margin-top: 12px; scroll-margin-top: 12px; }
 .pool, .targets { background: rgba(251, 250, 246, .94); border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 7px 24px rgba(37, 45, 50, .055); }
-.pool { min-height: 0; display: flex; flex-direction: column; padding: 12px; }
+.pool { min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; padding: 12px; }
 .active-target-picker { display: none; }
 .search-wrap { height: 42px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; background: #fffdfa; color: var(--muted); }
 .search-wrap:focus-within { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
@@ -92,7 +92,7 @@ h1 { font-size: 23px; letter-spacing: .04em; margin: 0 0 2px; }
 .category-tabs button.active { border-color: #c2ad80; background: var(--accent-soft); color: #614a24; font-weight: 600; }
 .pool-context { padding: 8px 2px 7px; color: var(--muted); font-size: 12px; }
 .pool-context strong { color: #745728; }
-.skill-grid { min-height: 480px; max-height: 650px; overflow-y: auto; align-content: start; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; padding: 2px 3px 4px 0; scrollbar-color: #b8b1a5 transparent; }
+.skill-grid { flex: 1 1 0; min-height: 0; overflow-y: auto; align-content: start; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; padding: 2px 3px 4px 0; scrollbar-color: #b8b1a5 transparent; }
 .skill-option { min-height: 44px; position: relative; display: flex; align-items: center; justify-content: flex-start; gap: 7px; padding: 6px 8px; border: 1px solid #d3cec4; border-left: 3px solid #8499a8; border-radius: 6px; background: linear-gradient(180deg, #fffefa, #fbf8f1); font-size: 12px; line-height: 1.25; text-align: left; cursor: pointer; box-shadow: 0 1px 2px rgba(28, 40, 51, .035); }
 .skill-option:hover:not(.disabled) { border-color: #9b8a68; background: #f7f0df; }
 .skill-option.disabled { opacity: .52; background: #e9e6df; color: #626970; cursor: not-allowed; }
@@ -318,7 +318,8 @@ h1 { font-size: 23px; letter-spacing: .04em; margin: 0 0 2px; }
   .workspace { grid-template-columns: 1fr; }
   .active-target-picker { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; margin-bottom: 9px; color: var(--muted); font-size: 12px; }
   .active-target-picker select { min-width: 0; height: 38px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 0 9px; color: var(--ink); }
-  .skill-grid { min-height: 340px; max-height: 480px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pool { height: auto; overflow: visible; }
+  .skill-grid { flex: 0 1 auto; height: min(480px, 62vh); min-height: 340px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .factor-grid, .loadout-detail .factor-grid { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
   .page-rail { right: 12px; top: auto; bottom: 10px; grid-auto-flow: column; transform: none; }
   .page-rail button { width: 62px; min-height: 48px; }
