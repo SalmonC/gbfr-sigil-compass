@@ -182,10 +182,10 @@ Phase 15：v0.2.0 公开发布
 - [x] 补齐 README、使用说明、故障排查、隐私、安全、更新记录和 Issue 模板
 - [x] 明确当前代码公开但不擅自授予第三方游戏内容开源许可
 - [x] 完成 v0.2.0 全套发行测试
-- [ ] 用 GitHub noreply 地址清理提交历史中的个人邮箱
-- [ ] 更新 Release 说明和仓库公开信息
-- [ ] 将仓库可见性改为 public 并复核匿名访问
-- **Status:** in progress
+- [x] 用 GitHub noreply 地址清理提交历史中的个人邮箱
+- [x] 更新 Release 说明和仓库公开信息
+- [x] 将仓库可见性改为 public 并复核匿名访问
+- **Status:** complete
 
 ## Key Questions
 
