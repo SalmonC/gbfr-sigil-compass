@@ -1,5 +1,7 @@
 # 因子罗盘（Sigil Compass）
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
+
 《碧蓝幻想 Relink》V+ 因子配装工具。它会只读解析本地存档，根据现有库存计算配装方案，适合因子较多、不想逐页翻找的玩家。
 
 > 当前公开版为 Windows x64 `v0.2.1`。项目是非官方玩家工具，与 Cygames、发行商及平台方无关。
@@ -169,4 +171,6 @@ npm run make:win-x64
 
 ## 权利说明
 
-仓库目前公开源代码，但尚未授予通用的开源使用许可，详见 [LICENSE.md](LICENSE.md)。游戏名称、技能名称、数据和图标归各自权利人所有，不包含在本项目代码许可中。素材来源和处理边界见 [NOTICE.md](NOTICE.md)。
+本项目的原创代码和文档采用 [MIT License](LICENSE.md)，允许使用、修改、分发和商业使用，但须保留版权与许可声明。
+
+《碧蓝幻想 Relink》的名称、技能名称、数据、图标及其他第三方内容不属于 MIT 授权范围，仍归各自权利人所有。素材来源和处理边界见 [NOTICE.md](NOTICE.md)。

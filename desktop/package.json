@@ -2,7 +2,7 @@
   "name": "sigil-compass-desktop",
   "version": "0.2.1",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "description": "Sigil Compass — offline GBFR sigil planning desktop app",
   "main": ".webpack/main",
   "packageManager": "npm@11.8.0",
