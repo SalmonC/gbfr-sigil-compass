@@ -19,7 +19,6 @@ commit 6aba7fc633e870de65f26c01462cdbe1dd6b6baa
 
 ## 软件依赖
 
-当前 Electron 版本包含 Electron、Chromium、Node.js、React、Lucide、AJV、FlatSharp 和 .NET Runtime 等组件。它们分别遵循自己的许可证；构建产物中保留上游随附的许可证和 notice 文件。
+当前 Electron 版本包含 Electron、Chromium、Node.js、React、Lucide、AJV、FlatSharp、highs-js/HiGHS 和 .NET Runtime 等组件。highs-js 与 HiGHS 采用 MIT License，其余组件分别遵循自己的许可证；构建产物中保留上游随附的许可证和 notice 文件。
 
 第三方组件的许可证不会扩展到游戏数据或图标，游戏素材也不会改变第三方软件原有许可证。
-

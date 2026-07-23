@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { solveBuild } from '../desktop/src/domain/solver.ts';
+import { solveBuild, solveBuildWithFallback } from '../desktop/src/domain/solver.ts';
+import { solveBuildMilp } from '../desktop/src/domain/solver-milp.ts';
 import type { BuildProfile, CatalogData, SolverRequest, SolverResult } from '../desktop/src/domain/models.ts';
 import type { RawSigil } from '../desktop/src/shared/contracts.ts';
 
@@ -238,6 +239,23 @@ const makeRequest = (
   maxSlots: options.slots ?? 2, resultLimit: options.limit ?? 10, runSeed: options.seed ?? 0
 });
 
+async function verifyFallback(request: SolverRequest, label: string): Promise<void> {
+  const actual = (await solveBuildMilp(request, Date.now(), 30_000)).results.map(result => ({
+    signature: result.signature,
+    primaryMatched: result.primaryMatched,
+    exactPrimaryCoverage: result.exactPrimaryCoverage,
+    basicSubstitutionUsage: result.basicSubstitutionUsage,
+    optionalMatched: result.optionalMatched,
+    optionalCoverage: result.optionalCoverage,
+    avoidOccurrences: result.avoidOccurrences,
+    usedSlots: result.usedSlots,
+    levelSum: result.levelSum,
+    tieA: result.tieA,
+    tieB: result.tieB
+  }));
+  assert.deepEqual(actual, bruteForce(request), label);
+}
+
 verify(makeRequest(
   { mandatory: ['S7', 'S8'] },
   [...Array.from({ length: 11 }, (_, index) => sigil(index + 1, index + 20, 7)), sigil(99, 99, 8)],
@@ -275,6 +293,20 @@ verify(makeRequest(
   [sigil(1, 1, 6), sigil(2, 2, 7), sigil(3, 3, 8)], { slots: 2 }
 ), 'basic attack and defense primary targets share one ordered allocation');
 
+await verifyFallback(makeRequest(
+  {
+    mandatory: ['S1'], optional: ['S2', 'S3', 'S2'],
+    basicPrimary: ['S4', 'S5'], forceBasicPrimary: true,
+    allowBasicSubstitution: true, basicSubstitutionOrder: ['S2', 'S3'],
+    avoid: ['S6']
+  },
+  [
+    sigil(1, 1, 2, 15), sigil(2, 4, 3, 14), sigil(3, 2, 5, 13),
+    sigil(4, 6, 2, 12), sigil(5, 3, 1, 11)
+  ],
+  { slots: 3, seed: 27, limit: 3 }
+), 'MILP fallback must preserve the complete lexicographic ranking');
+
 const multisetResult = solveBuild(makeRequest(
   { mandatory: ['S1'], optional: ['S1'], avoid: ['S1'], forbidden: ['S3'] },
   [sigil(1, 1, 1), sigil(2, 1, 3)], { slots: 1 }
@@ -298,15 +330,18 @@ for (let primary = 1; primary <= 24; primary++) {
     if (primary !== secondary) wideInventory.push(sigil(wideId++, primary, secondary));
   }
 }
-assert.throws(
-  () => solveBuild(makeRequest(
+const wideResult = await solveBuildWithFallback({
+  ...makeRequest(
     { optional: Array.from({ length: 24 }, (_, index) => `S${index + 1}`) },
     wideInventory,
-    { slots: 12, catalogSize: 24 }
-  )),
-  /solver\.complexity_limit/,
-  'wide legal inputs must stop at the resource budget instead of exhausting the process'
-);
+    { slots: 12, catalogSize: 24 }),
+  timeLimitMs: 120_000,
+  memoryLimitMiB: 128
+});
+assert.equal(wideResult.status, 'completed',
+  'wide legal inputs must fall back to the low-memory exact solver');
+assert.equal(wideResult.results[0]?.optionalMatched, 24,
+  'fallback must find full coverage for the 24-target stress case');
 
 let randomState = 0x62e2ac15;
 const random = (limit: number) => {

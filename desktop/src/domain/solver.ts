@@ -11,15 +11,37 @@ interface FactorGroup {
 }
 
 interface Variant {
-  readonly totalCounts: readonly number[];
-  readonly primaryCounts: readonly number[];
+  readonly totalCounts: Uint8Array;
+  readonly primaryCounts: Uint8Array;
   readonly usedSlots: number;
   readonly avoidOccurrences: number;
   readonly levelSum: number;
   readonly tieA: number;
   readonly tieB: number;
-  readonly selections: readonly [FactorGroup, number][];
-  readonly signature: string;
+  readonly selections: SelectionNode | null;
+}
+
+interface SelectionNode {
+  readonly previous: SelectionNode | null;
+  readonly group: FactorGroup;
+  readonly count: number;
+}
+
+interface FactorChoice {
+  readonly count: number;
+  readonly avoidOccurrences: number;
+  readonly levelSum: number;
+  readonly tieA: number;
+  readonly tieB: number;
+  readonly entries: readonly [FactorGroup, number][];
+}
+
+interface FactorClass {
+  readonly key: string;
+  readonly totalIndexes: readonly number[];
+  readonly primaryIndex: number | null;
+  readonly availableCount: number;
+  readonly choices: readonly FactorChoice[];
 }
 
 interface EvaluatedCoverage {
@@ -30,14 +52,16 @@ interface EvaluatedCoverage {
   readonly optionalCoverage: readonly boolean[];
 }
 
-// The exact dynamic program is intentionally bounded. Some legal 24-target
-// profiles are exponential set-cover instances; failing them explicitly is safer
-// than exhausting the renderer process and losing the whole UI.
-const MAX_LAYER_STATES = 50_000;
-const MAX_LAYER_VARIANTS = 100_000;
 const DEFAULT_SOLVE_MILLISECONDS = 30_000;
 const MIN_SOLVE_MILLISECONDS = 5_000;
 const MAX_SOLVE_MILLISECONDS = 600_000;
+const DEFAULT_MEMORY_LIMIT_MIB = 512;
+const MIN_MEMORY_LIMIT_MIB = 128;
+const MAX_MEMORY_LIMIT_MIB = 2_048;
+// Conservative retained-memory estimates for the packed state map. Temporary
+// allocations are additionally bounded by the independent Worker lifetime.
+const ESTIMATED_STATE_BYTES = 1_280;
+const ESTIMATED_VARIANT_BYTES = 1_920;
 
 function hashNumber(value: string): number {
   return Number.parseInt(value.slice(2), 16) >>> 0;
@@ -68,11 +92,10 @@ function compareAdditiveTail(left: Variant, right: Variant): number {
 }
 
 function compareStableTail(left: Variant, right: Variant): number {
-  return compareAdditiveTail(left, right) || left.signature.localeCompare(right.signature);
+  return compareAdditiveTail(left, right);
 }
 
 function addVariant(bucket: Variant[], candidate: Variant, limit: number): number {
-  if (bucket.some(existing => existing.signature === candidate.signature)) return 0;
   const previousLength = bucket.length;
   bucket.push(candidate);
   bucket.sort(compareStableTail);
@@ -87,6 +110,157 @@ function addVariant(bucket: Variant[], candidate: Variant, limit: number): numbe
     if (firstStrictlyWorse >= 0) bucket.length = firstStrictlyWorse;
   }
   return bucket.length - previousLength;
+}
+
+function compareCandidateTail(
+  avoidOccurrences: number,
+  usedSlots: number,
+  levelSum: number,
+  tieA: number,
+  tieB: number,
+  existing: Variant
+): number {
+  return avoidOccurrences - existing.avoidOccurrences
+    || usedSlots - existing.usedSlots
+    || existing.levelSum - levelSum
+    || tieA - existing.tieA
+    || tieB - existing.tieB;
+}
+
+function canEnterBucket(
+  bucket: readonly Variant[],
+  limit: number,
+  avoidOccurrences: number,
+  usedSlots: number,
+  levelSum: number,
+  tieA: number,
+  tieB: number
+): boolean {
+  if (bucket.length < limit) return true;
+  return compareCandidateTail(
+    avoidOccurrences, usedSlots, levelSum, tieA, tieB, bucket[limit - 1]!) <= 0;
+}
+
+function selectionEntries(node: SelectionNode | null): [FactorGroup, number][] {
+  const entries: [FactorGroup, number][] = [];
+  for (let current = node; current; current = current.previous) {
+    entries.push([current.group, current.count]);
+  }
+  entries.reverse();
+  return entries;
+}
+
+function appendSelections(
+  previous: SelectionNode | null,
+  entries: readonly [FactorGroup, number][]
+): SelectionNode | null {
+  let current = previous;
+  for (const [group, count] of entries) current = { previous: current, group, count };
+  return current;
+}
+
+function packedStateKey(
+  totalCounts: Uint8Array,
+  primaryCounts: Uint8Array,
+  usedSlots: number
+): string {
+  return String.fromCharCode(usedSlots, ...totalCounts, ...primaryCounts);
+}
+
+function projectedCount(
+  counts: Uint8Array,
+  index: number,
+  contributionIndexes: readonly number[],
+  selectedCount: number,
+  cap: number
+): number {
+  let value = counts[index]!;
+  for (const contributionIndex of contributionIndexes) {
+    if (contributionIndex === index) value += selectedCount;
+  }
+  return Math.min(cap, value);
+}
+
+function projectedStateKey(
+  variant: Variant,
+  factorClass: FactorClass,
+  selectedCount: number,
+  usedSlots: number,
+  allCaps: readonly number[],
+  primaryCaps: readonly number[]
+): string {
+  let key = String.fromCharCode(usedSlots);
+  for (let index = 0; index < variant.totalCounts.length; index++) {
+    key += String.fromCharCode(projectedCount(
+      variant.totalCounts, index, factorClass.totalIndexes, selectedCount, allCaps[index]!));
+  }
+  for (let index = 0; index < variant.primaryCounts.length; index++) {
+    const value = factorClass.primaryIndex === index
+      ? Math.min(primaryCaps[index]!, variant.primaryCounts[index]! + selectedCount)
+      : variant.primaryCounts[index]!;
+    key += String.fromCharCode(value);
+  }
+  return key;
+}
+
+function compareChoices(left: FactorChoice, right: FactorChoice): number {
+  return left.avoidOccurrences - right.avoidOccurrences
+    || left.count - right.count
+    || right.levelSum - left.levelSum
+    || left.tieA - right.tieA
+    || left.tieB - right.tieB;
+}
+
+function addChoice(bucket: FactorChoice[], candidate: FactorChoice, limit: number): void {
+  bucket.push(candidate);
+  bucket.sort(compareChoices);
+  if (bucket.length <= limit) return;
+  const cutoff = bucket[limit - 1]!;
+  const firstStrictlyWorse = bucket.findIndex((item, index) =>
+    index >= limit && compareChoices(item, cutoff) !== 0);
+  if (firstStrictlyWorse >= 0) bucket.length = firstStrictlyWorse;
+}
+
+function buildClassChoices(
+  groups: readonly FactorGroup[],
+  avoidPerFactor: number,
+  maxSlots: number,
+  resultLimit: number
+): FactorChoice[] {
+  let byCount: FactorChoice[][] = Array.from({ length: maxSlots + 1 }, () => []);
+  byCount[0] = [{
+    count: 0,
+    avoidOccurrences: 0,
+    levelSum: 0,
+    tieA: 0,
+    tieB: 0,
+    entries: []
+  }];
+  for (const group of groups) {
+    const next: FactorChoice[][] = Array.from({ length: maxSlots + 1 }, () => []);
+    for (let previousCount = 0; previousCount <= maxSlots; previousCount++) {
+      for (const previous of byCount[previousCount]!) {
+        const maxGroupCount = Math.min(group.instances.length, maxSlots - previousCount);
+        let runningLevel = 0;
+        for (let groupCount = 0; groupCount <= maxGroupCount; groupCount++) {
+          if (groupCount > 0) runningLevel += group.instances[groupCount - 1]!.sigilLevel;
+          const count = previousCount + groupCount;
+          addChoice(next[count]!, {
+            count,
+            avoidOccurrences: previous.avoidOccurrences + avoidPerFactor * groupCount,
+            levelSum: previous.levelSum + runningLevel,
+            tieA: previous.tieA + group.tieA * groupCount,
+            tieB: previous.tieB + group.tieB * groupCount,
+            entries: groupCount === 0
+              ? previous.entries
+              : [...previous.entries, [group, groupCount]]
+          }, resultLimit);
+        }
+      }
+    }
+    byCount = next;
+  }
+  return byCount.flat();
 }
 
 function compareBooleanVector(left: readonly boolean[], right: readonly boolean[]): number {
@@ -190,6 +364,10 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
   const timeLimitMs = Math.max(
     MIN_SOLVE_MILLISECONDS,
     Math.min(request.timeLimitMs ?? DEFAULT_SOLVE_MILLISECONDS, MAX_SOLVE_MILLISECONDS));
+  const memoryLimitBytes = Math.max(
+    MIN_MEMORY_LIMIT_MIB,
+    Math.min(request.memoryLimitMiB ?? DEFAULT_MEMORY_LIMIT_MIB, MAX_MEMORY_LIMIT_MIB))
+    * 1024 * 1024;
   if (!Number.isInteger(request.maxSlots) || request.maxSlots < 1 || request.maxSlots > 12) {
     throw new Error('solver.max_slots_invalid');
   }
@@ -233,6 +411,10 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
   ])];
   const allIndex = new Map(allHashes.map((hash, index) => [hash, index]));
   const mandatoryRequirements = countItems(mandatoryHashes);
+  const mandatoryEntries = [...mandatoryRequirements].map(([hash, required]) => ({
+    index: allIndex.get(hash)!,
+    required
+  }));
   const optionalRequirements = countItems(effectiveOptionalHashes);
   const primaryRequirements = countItems(primaryTargetHashes);
   const allCaps = allHashes.map(hash => Math.min(request.maxSlots * 2,
@@ -280,90 +462,132 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
     return rightMandatory - leftMandatory || left.key.localeCompare(right.key);
   });
 
+  const classGroups = new Map<string, FactorGroup[]>();
+  for (const group of groups) {
+    const totalIndexes = [group.primary, group.secondary]
+      .flatMap(hash => {
+        const index = allIndex.get(hash);
+        return index === undefined ? [] : [index];
+      })
+      .sort((left, right) => left - right);
+    const projectedPrimaryIndex = primaryIndex.get(group.primary) ?? null;
+    const avoidPerFactor = (avoid.has(group.primary) ? 1 : 0) + (avoid.has(group.secondary) ? 1 : 0);
+    const classKey = `${totalIndexes.join(',')}/${projectedPrimaryIndex ?? '-'}/${avoidPerFactor}`;
+    const bucket = classGroups.get(classKey) ?? [];
+    bucket.push(group);
+    classGroups.set(classKey, bucket);
+  }
+  const classes: FactorClass[] = [...classGroups.entries()].map(([key, projectedGroups]) => {
+    const [totalPart, primaryPart, avoidPart] = key.split('/');
+    return {
+      key,
+      totalIndexes: totalPart ? totalPart.split(',').map(Number) : [],
+      primaryIndex: primaryPart === '-' ? null : Number(primaryPart),
+      availableCount: projectedGroups.reduce((sum, group) => sum + group.instances.length, 0),
+      choices: buildClassChoices(
+        projectedGroups, Number(avoidPart), request.maxSlots, resultLimit)
+    };
+  }).sort((left, right) => {
+    const mandatoryContribution = (factorClass: FactorClass) => factorClass.totalIndexes
+      .filter(index => mandatoryRequirements.has(allHashes[index]!)).length;
+    return mandatoryContribution(right) - mandatoryContribution(left)
+      || left.key.localeCompare(right.key);
+  });
+
   // An unlimited-slot suffix count is a safe impossibility test for mandatory skills.
-  const suffixAvailability = Array.from({ length: groups.length + 1 }, () => allHashes.map(() => 0));
-  for (let groupIndex = groups.length - 1; groupIndex >= 0; groupIndex--) {
-    const group = groups[groupIndex]!;
-    const row = [...suffixAvailability[groupIndex + 1]!];
-    for (const hash of [group.primary, group.secondary]) {
-      const index = allIndex.get(hash);
-      if (index !== undefined) row[index] = Math.min(allCaps[index]!, row[index]! + group.instances.length);
+  const suffixAvailability = Array.from({ length: classes.length + 1 }, () => allHashes.map(() => 0));
+  for (let classIndex = classes.length - 1; classIndex >= 0; classIndex--) {
+    const factorClass = classes[classIndex]!;
+    const row = [...suffixAvailability[classIndex + 1]!];
+    for (const index of factorClass.totalIndexes) {
+      row[index] = Math.min(allCaps[index]!, row[index]! + factorClass.availableCount);
     }
-    suffixAvailability[groupIndex] = row;
+    suffixAvailability[classIndex] = row;
   }
 
   const initial: Variant = {
-    totalCounts: allHashes.map(() => 0),
-    primaryCounts: primaryHashes.map(() => 0),
+    totalCounts: new Uint8Array(allHashes.length),
+    primaryCounts: new Uint8Array(primaryHashes.length),
     usedSlots: 0,
     avoidOccurrences: 0,
     levelSum: 0,
     tieA: 0,
     tieB: 0,
-    selections: [],
-    signature: ''
+    selections: null
   };
-  let states = new Map<string, Variant[]>([['0', [initial]]]);
+  let states = new Map<string, Variant[]>([[packedStateKey(
+    initial.totalCounts, initial.primaryCounts, initial.usedSlots), [initial]]]);
   let exploredStateCount = 1;
 
-  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-    const group = groups[groupIndex]!;
+  for (let classIndex = 0; classIndex < classes.length; classIndex++) {
+    const factorClass = classes[classIndex]!;
     const next = new Map<string, Variant[]>();
     let layerVariantCount = 0;
-    const suffix = suffixAvailability[groupIndex + 1]!;
+    const suffix = suffixAvailability[classIndex + 1]!;
     for (const variants of states.values()) {
       for (const variant of variants) {
-        const maxCount = Math.min(group.instances.length, request.maxSlots - variant.usedSlots);
-        let runningLevel = 0;
-        for (let selectedCount = 0; selectedCount <= maxCount; selectedCount++) {
+        for (const choice of factorClass.choices) {
+          if (variant.usedSlots + choice.count > request.maxSlots) continue;
           candidateAttemptCount++;
           if ((candidateAttemptCount & 0x7ff) === 0
             && Date.now() - startedAt > timeLimitMs) {
             throw new Error('solver.time_limit');
           }
-          if (selectedCount > 0) runningLevel += group.instances[selectedCount - 1]!.sigilLevel;
-          const totalCounts = [...variant.totalCounts];
-          const primaryCounts = [...variant.primaryCounts];
-          if (selectedCount > 0) {
-            for (const hash of [group.primary, group.secondary]) {
-              const index = allIndex.get(hash);
-              if (index !== undefined) totalCounts[index] = Math.min(
-                allCaps[index]!, totalCounts[index]! + selectedCount);
+          const usedSlots = variant.usedSlots + choice.count;
+          let mandatoryDeficit = 0;
+          let mandatoryStillPossible = true;
+          for (const { index, required } of mandatoryEntries) {
+            const count = projectedCount(
+              variant.totalCounts, index, factorClass.totalIndexes, choice.count, allCaps[index]!);
+            mandatoryDeficit += Math.max(0, required - count);
+            if (count + suffix[index]! < required) {
+              mandatoryStillPossible = false;
+              break;
             }
-            const index = primaryIndex.get(group.primary);
-            if (index !== undefined) primaryCounts[index] = Math.min(
-              primaryCaps[index]!, primaryCounts[index]! + selectedCount);
           }
+          if (!mandatoryStillPossible
+            || Math.ceil(mandatoryDeficit / 2) > request.maxSlots - usedSlots) continue;
 
-          const mandatoryStillPossible = allHashes.every((hash, index) =>
-            totalCounts[index]! + suffix[index]! >= (mandatoryRequirements.get(hash) ?? 0));
-          if (!mandatoryStillPossible) continue;
-
-          const usedSlots = variant.usedSlots + selectedCount;
-          const selection = selectedCount === 0
-            ? variant.selections
-            : [...variant.selections, [group, selectedCount] as [FactorGroup, number]];
-          const signature = selectedCount === 0
-            ? variant.signature
-            : `${variant.signature}|${group.key}*${selectedCount}`;
-          const candidate: Variant = {
-            totalCounts,
-            primaryCounts,
-            usedSlots,
-            avoidOccurrences: variant.avoidOccurrences + selectedCount
-              * ((avoid.has(group.primary) ? 1 : 0) + (avoid.has(group.secondary) ? 1 : 0)),
-            levelSum: variant.levelSum + runningLevel,
-            tieA: variant.tieA + group.tieA * selectedCount,
-            tieB: variant.tieB + group.tieB * selectedCount,
-            selections: selection,
-            signature
-          };
-          const key = `${totalCounts.join(',')}/${primaryCounts.join(',')}/${usedSlots}`;
+          const key = projectedStateKey(
+            variant, factorClass, choice.count, usedSlots, allCaps, primaryCaps);
           const bucket = next.get(key) ?? [];
+          const avoidOccurrences = variant.avoidOccurrences + choice.avoidOccurrences;
+          const levelSum = variant.levelSum + choice.levelSum;
+          const tieA = variant.tieA + choice.tieA;
+          const tieB = variant.tieB + choice.tieB;
+          if (!canEnterBucket(
+            bucket, resultLimit, avoidOccurrences, usedSlots, levelSum, tieA, tieB)) continue;
+
+          let candidate = variant;
+          if (choice.count > 0) {
+            const totalCounts = variant.totalCounts.slice();
+            const primaryCounts = variant.primaryCounts.slice();
+            for (const index of factorClass.totalIndexes) {
+              totalCounts[index] = Math.min(
+                allCaps[index]!, totalCounts[index]! + choice.count);
+            }
+            if (factorClass.primaryIndex !== null) {
+              const index = factorClass.primaryIndex;
+              primaryCounts[index] = Math.min(
+                primaryCaps[index]!, primaryCounts[index]! + choice.count);
+            }
+            candidate = {
+              totalCounts,
+              primaryCounts,
+              usedSlots,
+              avoidOccurrences,
+              levelSum,
+              tieA,
+              tieB,
+              selections: appendSelections(variant.selections, choice.entries)
+            };
+          }
           layerVariantCount += addVariant(bucket, candidate, resultLimit);
           next.set(key, bucket);
-          if (next.size > MAX_LAYER_STATES || layerVariantCount > MAX_LAYER_VARIANTS) {
-            throw new Error('solver.complexity_limit');
+          const estimatedRetainedBytes = next.size * ESTIMATED_STATE_BYTES
+            + layerVariantCount * ESTIMATED_VARIANT_BYTES;
+          if (estimatedRetainedBytes > memoryLimitBytes) {
+            throw new Error('solver.memory_limit');
           }
         }
       }
@@ -387,10 +611,11 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
         substitutionHashes,
         allowBasicSubstitution);
       if (!coverage.mandatorySatisfied) continue;
-      const selected = variant.selections.flatMap(([group, count]) => group.instances.slice(0, count));
+      const selections = selectionEntries(variant.selections);
+      const selected = selections.flatMap(([group, count]) => group.instances.slice(0, count));
       results.push({
         selected,
-        signature: variant.selections
+        signature: selections
           .map(([group, count]) => `${group.key}*${count}`)
           .sort((left, right) => left.localeCompare(right))
           .join('|'),
@@ -417,6 +642,24 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
     candidateTypeCount: groups.length,
     exploredStateCount
   };
+}
+
+export async function solveBuildWithFallback(request: SolverRequest): Promise<SolverAnalysis> {
+  const startedAt = Date.now();
+  const timeLimitMs = Math.max(
+    MIN_SOLVE_MILLISECONDS,
+    Math.min(request.timeLimitMs ?? DEFAULT_SOLVE_MILLISECONDS, MAX_SOLVE_MILLISECONDS));
+  try {
+    return solveBuild(request);
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'solver.memory_limit') throw error;
+    if (typeof process !== 'undefined' && process.versions?.node) {
+      const { solveBuildMilp } = await import('./solver-milp.ts');
+      return solveBuildMilp(request, startedAt, timeLimitMs);
+    }
+    const { solveBuildMilpInBrowser } = await import('./solver-milp-browser.ts');
+    return solveBuildMilpInBrowser(request, startedAt, timeLimitMs);
+  }
 }
 
 function compareResults(left: SolverResult, right: SolverResult, forcePrimary: boolean): number {

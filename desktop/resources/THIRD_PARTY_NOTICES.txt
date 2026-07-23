@@ -1,9 +1,11 @@
 Sigil Compass — third-party notices
 
 This application bundles Electron, Chromium, Node.js, React, Lucide,
-AJV, FlatSharp and .NET runtime components. Their license texts and notices
+AJV, FlatSharp, highs-js/HiGHS and .NET runtime components. Their license texts and notices
 are included with the packaged application where supplied by their respective
 distributions. Electron also includes LICENSE and LICENSES.chromium.html.
+highs-js and the embedded HiGHS WebAssembly solver are distributed under
+the MIT License: https://github.com/lovasoa/highs-js and https://highs.dev/
 
 The offline Chinese skill catalog was normalized from the publicly available
 data snapshot at:

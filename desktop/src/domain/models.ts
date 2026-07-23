@@ -46,6 +46,7 @@ export interface SolverRequest {
   readonly resultLimit: number;
   readonly runSeed: number;
   readonly timeLimitMs?: number;
+  readonly memoryLimitMiB?: number;
 }
 
 export interface SolverResult {

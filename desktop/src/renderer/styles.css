@@ -38,7 +38,8 @@ main { width: 100%; max-width: 1600px; min-height: 100vh; margin: 0 auto; paddin
 .boot-fallback { min-height: 100vh; display: grid; place-content: center; gap: 8px; padding: 24px; color: #5b2d2a; text-align: center; }
 .boot-fallback strong { font-size: 18px; }
 .boot-fallback span { color: var(--muted); font-size: 13px; }
-.topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid rgba(164, 150, 122, .55); border-radius: 9px; background: rgba(251, 250, 246, .8); box-shadow: 0 4px 18px rgba(37, 45, 50, .05); backdrop-filter: blur(8px); }
+.topbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid rgba(164, 150, 122, .55); border-radius: 9px; background: rgba(251, 250, 246, .8); box-shadow: 0 4px 18px rgba(37, 45, 50, .05); backdrop-filter: blur(8px); }
+.topbar:has(.profile-menu[open]) { z-index: var(--z-menu); }
 .topbar-leading { display: flex; align-items: center; gap: 18px; min-width: 0; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand > svg { color: var(--accent); }
@@ -79,6 +80,7 @@ h1 { font-size: 23px; letter-spacing: .04em; margin: 0 0 2px; }
 .solve-time-limit { min-height: 36px; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .solve-time-limit input { width: 60px; height: 34px; border: 1px solid var(--line); border-radius: var(--radius-control); padding: 0 6px; background: var(--surface); color: var(--ink); font-variant-numeric: tabular-nums; }
 .solve-time-limit input:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
+.solve-time-limit input:disabled { opacity: .55; cursor: not-allowed; }
 .noticebar { min-height: 34px; display: flex; align-items: center; padding: 6px 13px; border: 1px solid var(--line); border-top: 0; background: #f5f1e8; color: #4f5b65; font-size: 13px; }
 
 .workspace { display: grid; grid-template-columns: minmax(340px, .82fr) minmax(0, 1.38fr); gap: 12px; min-height: 610px; margin-top: 12px; scroll-margin-top: 12px; }

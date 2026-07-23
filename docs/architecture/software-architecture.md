@@ -161,13 +161,13 @@ Engine 持有已验证草稿，Renderer 只持有带 revision 的 ViewModel。`A
 
 分析请求引用 `snapshotId`、规范化目标、Catalog 版本和显式 run seed。求解器按 [GBFR-RANK-3](ranking-specification.md) 生成最多 10 个结果以及 canonical assignment witness。结果引用 request hash，切换方案或库存后迟到响应不得覆盖当前页面。
 
-求解属于最坏情况下会组合爆炸的问题。当前精确 DP 每层最多保留 50,000 个语义状态和 100,000 个候选；单次墙钟默认 30 秒，用户可设为 5–600 秒，Renderer 在所设上限后额外等待 5 秒再终止短生命周期 Worker。超时返回 `solver.time_limit`，状态容量超限返回 `solver.complexity_limit`；两者都不返回近似方案、不缓存、不允许确认。求解始终位于独立 Worker，运行期间 Renderer 保持响应。普通输入仍保持精确 Top-K 语义；复杂输入应通过减少可选目标或增加“不能出现”的技能缩小搜索空间。后续若替换为整数约束求解器，也必须保留同样的隔离和失败协议。
+求解属于最坏情况下会组合爆炸的问题。快速路径使用精确 DP：先把有序词条组合按目标贡献投影为等价类，为每类、每个选取数量预计算无损 Top-K，再使用紧凑计数状态完成全局搜索。快速路径达到保守内存切换线后，不向用户返回容量错误，而是自动改用 HiGHS WebAssembly 混合整数规划；后者逐级固定排序目标，保持精确 Top-10 语义，不使用磁盘交换或近似结果。单次墙钟默认 30 秒、可设为 5–600 秒；快速路径切换预算默认 512 MiB、可设为 128–2048 MiB。Renderer 在时间上限后额外等待 5 秒再终止短生命周期 Worker。只有超时返回 `solver.time_limit`，且不缓存、不允许确认。切换预算不是操作系统硬配额，临时分配、WebAssembly 内存和 V8 回收会使实际占用浮动。求解始终位于独立 Worker，运行期间 Renderer 保持响应。
 
 ### 5.3 进程失败与恢复
 
 - Engine Host 意外退出：Main 记录退出码和 correlation ID，最多自动重启一次；未提交的 Renderer 草稿保留，进行中的操作标记失败，不自动重放写入命令。
 - SaveReader Worker 超时/崩溃：Engine 终止该 Worker，删除临时快照并保留上次成功的库存缓存；Engine 与 UI 继续可用。
-- Solver Worker 达到状态、候选或时间预算：终止 Worker，页面保留当前目标和上一份有效缓存，但本次请求不得覆盖缓存或进入确认流程。
+- Solver Worker 达到内存或时间预算：终止 Worker，页面保留当前目标和上一份有效缓存，但本次请求不得覆盖缓存或进入确认流程。
 - Renderer reload：通过 `loadWorkspace()` 从 Engine/SQLite 重建已提交状态；临时草稿使用明确的页面级恢复策略，不依赖 Electron Main 内存作为数据库。
 
 ## 6. Electron 安全基线

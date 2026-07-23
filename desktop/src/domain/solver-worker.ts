@@ -1,5 +1,5 @@
 import type { SolverAnalysis, SolverRequest } from './models';
-import { solveBuild } from './solver';
+import { solveBuildWithFallback } from './solver';
 
 interface SolverWorkerRequest {
   readonly requestId: number;
@@ -12,10 +12,10 @@ interface SolverWorkerResponse {
   readonly error?: string;
 }
 
-self.onmessage = (event: MessageEvent<SolverWorkerRequest>) => {
+self.onmessage = async (event: MessageEvent<SolverWorkerRequest>) => {
   const { requestId, request } = event.data;
   try {
-    const response: SolverWorkerResponse = { requestId, result: solveBuild(request) };
+    const response: SolverWorkerResponse = { requestId, result: await solveBuildWithFallback(request) };
     self.postMessage(response);
   } catch (error) {
     const response: SolverWorkerResponse = {

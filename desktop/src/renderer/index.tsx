@@ -41,6 +41,10 @@ const SOLVE_TIME_LIMIT_STORAGE_KEY = 'sigil-compass.solve-time-limit-seconds';
 const DEFAULT_SOLVE_TIME_LIMIT_SECONDS = 30;
 const MIN_SOLVE_TIME_LIMIT_SECONDS = 5;
 const MAX_SOLVE_TIME_LIMIT_SECONDS = 600;
+const MEMORY_LIMIT_STORAGE_KEY = 'sigil-compass.memory-limit-mib';
+const DEFAULT_MEMORY_LIMIT_MIB = 512;
+const MIN_MEMORY_LIMIT_MIB = 128;
+const MAX_MEMORY_LIMIT_MIB = 2_048;
 let solverWorker: Worker | null = null;
 let nextSolverRequestId = 1;
 const pendingSolverRequests = new Map<number, {
@@ -123,6 +127,12 @@ function readSolveTimeLimitSeconds(): number {
   const stored = Number.parseInt(window.localStorage.getItem(SOLVE_TIME_LIMIT_STORAGE_KEY) ?? '', 10);
   if (!Number.isFinite(stored)) return DEFAULT_SOLVE_TIME_LIMIT_SECONDS;
   return Math.max(MIN_SOLVE_TIME_LIMIT_SECONDS, Math.min(stored, MAX_SOLVE_TIME_LIMIT_SECONDS));
+}
+
+function readMemoryLimitMiB(): number {
+  const stored = Number.parseInt(window.localStorage.getItem(MEMORY_LIMIT_STORAGE_KEY) ?? '', 10);
+  if (!Number.isFinite(stored)) return DEFAULT_MEMORY_LIMIT_MIB;
+  return Math.max(MIN_MEMORY_LIMIT_MIB, Math.min(stored, MAX_MEMORY_LIMIT_MIB));
 }
 
 const sectionMeta: Record<Domain, { title: string; help: string; tone: string }> = {
@@ -305,8 +315,10 @@ function App() {
   const [resultScrollRequest, setResultScrollRequest] = useState(0);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [solveTimeLimitSeconds, setSolveTimeLimitSeconds] = useState(readSolveTimeLimitSeconds);
+  const [memoryLimitMiB, setMemoryLimitMiB] = useState(readMemoryLimitMiB);
   const targetsRef = useRef<HTMLElement>(null);
   const resultsRef = useRef<HTMLElement>(null);
+  const profileMenuRef = useRef<HTMLDetailsElement>(null);
   const activeRunRef = useRef<{ runId: number; requestKey: string } | null>(null);
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
@@ -342,6 +354,21 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(SOLVE_TIME_LIMIT_STORAGE_KEY, String(solveTimeLimitSeconds));
   }, [solveTimeLimitSeconds]);
+
+  useEffect(() => {
+    window.localStorage.setItem(MEMORY_LIMIT_STORAGE_KEY, String(memoryLimitMiB));
+  }, [memoryLimitMiB]);
+
+  useEffect(() => {
+    const closeProfileMenu = (event: PointerEvent) => {
+      const menu = profileMenuRef.current;
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) {
+        menu.removeAttribute('open');
+      }
+    };
+    document.addEventListener('pointerdown', closeProfileMenu);
+    return () => document.removeEventListener('pointerdown', closeProfileMenu);
+  }, []);
 
   useEffect(() => {
     if (!window.gbfrDesktop) {
@@ -636,7 +663,8 @@ function App() {
         maxSlots: 12,
         resultLimit: 10,
         runSeed,
-        timeLimitMs: solveTimeLimitSeconds * 1_000
+        timeLimitMs: solveTimeLimitSeconds * 1_000,
+        memoryLimitMiB
       });
       const activeRun = activeRunRef.current;
       if (!activeRun || activeRun.runId !== runId || activeRun.requestKey !== context.requestKey) return;
@@ -654,6 +682,8 @@ function App() {
       const errorCode = error instanceof Error ? error.message : '未知错误';
       const message = errorCode === 'solver.time_limit'
         ? `计算达到 ${solveTimeLimitSeconds} 秒上限。可以提高计算上限，或减少可选目标后重试。`
+        : errorCode === 'solver.memory_limit'
+          ? `计算达到 ${memoryLimitMiB} MB 内存预算。可以谨慎提高内存预算，或减少可选目标后重试。`
         : errorCode === 'solver.complexity_limit'
           ? '组合状态超过安全容量。延长时间通常无效，请减少可选目标，或增加“不能出现”的技能后重试。'
           : errorCode === 'solver.resource_limit'
@@ -906,7 +936,7 @@ function App() {
           {saveStatus === 'failed' ? <AlertTriangle size={14} /> : <Check size={14} />}
           {saveStatus === 'saving' ? '保存中…' : saveStatus === 'failed' ? '保存失败' : '已自动保存'}
         </span>
-        <details className="profile-menu">
+        <details className="profile-menu" ref={profileMenuRef}>
           <summary className="secondary-action"><MoreHorizontal size={17} />方案操作</summary>
           <div className="profile-menu-panel">
             <button type="button" onClick={createProfileCopy}><Plus size={16} />复制为新方案</button>
@@ -932,13 +962,26 @@ function App() {
       {appPage === 'planner' && <label className="solve-time-limit">
         <span>计算上限</span>
         <input type="number" min={MIN_SOLVE_TIME_LIMIT_SECONDS} max={MAX_SOLVE_TIME_LIMIT_SECONDS}
+          disabled={analysisRun.phase === 'running'}
           value={solveTimeLimitSeconds} onChange={event => {
             const value = Number.parseInt(event.target.value, 10);
             if (Number.isFinite(value)) setSolveTimeLimitSeconds(Math.max(
               MIN_SOLVE_TIME_LIMIT_SECONDS, Math.min(value, MAX_SOLVE_TIME_LIMIT_SECONDS)));
           }} />
         <span>秒</span>
-        <HelpPopover label="计算上限说明" text="单次计算默认最多运行 30 秒，可设为 5–600 秒。若组合状态超过安全容量，计算仍会提前停止，以免占用过多内存。" />
+        <HelpPopover label="计算上限说明" text="单次计算默认最多运行 30 秒，可设为 5–600 秒。复杂配置会自动改用更省内存的精确计算；如果仍超时，可适当提高这里的时间。" />
+      </label>}
+      {appPage === 'planner' && <label className="solve-time-limit">
+        <span>快速计算内存</span>
+        <input type="number" min={MIN_MEMORY_LIMIT_MIB} max={MAX_MEMORY_LIMIT_MIB} step={128}
+          disabled={analysisRun.phase === 'running'}
+          value={memoryLimitMiB} onChange={event => {
+            const value = Number.parseInt(event.target.value, 10);
+            if (Number.isFinite(value)) setMemoryLimitMiB(Math.max(
+              MIN_MEMORY_LIMIT_MIB, Math.min(value, MAX_MEMORY_LIMIT_MIB)));
+          }} />
+        <span>MB</span>
+        <HelpPopover label="内存预算说明" text="默认 512 MB，可设为 128–2048 MB。快速计算达到该值后会自动切换为更省内存的精确计算，不会仅因组合数量太多而停止。此数值不是系统硬限制，实际占用会有浮动。" />
       </label>}
       <button className="secondary-action" type="button" onClick={() => void window.gbfrDesktop.openProjectPage()}>
         <ExternalLink size={17} />GitHub
