@@ -6,7 +6,7 @@
 
 ## Current Phase
 
-Phase 14：Windows 可用版修复与轻量化重构准备
+Phase 15：v0.2.0 公开发布
 
 ## Phases
 
@@ -174,6 +174,18 @@ Phase 14：Windows 可用版修复与轻量化重构准备
 - [x] 核实参考项目部署模型并冻结 Windows-only Tauri 2 + Rust 重构 ADR
 - [x] 编写 Windows Codex 开发环境与换机交接清单
 - **Status:** complete
+
+### Phase 15: v0.2.0 公开发布
+
+- [x] 审计源码、Git 历史、Release 和构建产物中的凭据、存档与本机路径
+- [x] 明确游戏目录与图标的来源和未获再分发许可风险
+- [x] 补齐 README、使用说明、故障排查、隐私、安全、更新记录和 Issue 模板
+- [x] 明确当前代码公开但不擅自授予第三方游戏内容开源许可
+- [x] 完成 v0.2.0 全套发行测试
+- [ ] 用 GitHub noreply 地址清理提交历史中的个人邮箱
+- [ ] 更新 Release 说明和仓库公开信息
+- [ ] 将仓库可见性改为 public 并复核匿名访问
+- **Status:** in progress
 
 ## Key Questions
 

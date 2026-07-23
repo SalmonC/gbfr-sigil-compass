@@ -1,0 +1,49 @@
+name: 问题反馈
+description: 报告可以稳定复现的错误
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请勿上传 `SaveData*.dat`、包含用户名的完整路径或其他个人信息。安全问题请使用 Security 页面私下报告。
+  - type: input
+    id: app-version
+    attributes:
+      label: 应用版本
+      placeholder: 例如 v0.2.0
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows 版本
+      placeholder: 例如 Windows 11 24H2 x64，缩放 150%
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从打开应用开始，按顺序写出操作。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果和错误提示
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他信息
+      description: 可以添加经过遮挡的截图，但不要上传存档。
+

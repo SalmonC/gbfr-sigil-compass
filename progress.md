@@ -371,3 +371,12 @@
 - 用户真实存档回归：401 个因子，14,550 状态，15 次 p95 181 ms，GC 后堆增长 0 MiB。
 - Windows x64 包生成成功，ZIP 173 MiB，PE32+ x86-64。
 - 错误记录：首次运行 `shasum -c release/SHA256SUMS.txt` 时工作目录错误，清单中的相对路径无法解析；改在 `release/` 目录执行。
+
+# 2026-07-23 v0.2.0 公开发布准备
+
+- 仓库未跟踪真实存档、缓存、Release ZIP、依赖目录或构建输出。
+- 工作树文本扫描未发现 GitHub token、私钥或本机绝对路径。
+- Git 历史作者信息包含学校邮箱，公开前改写为 GitHub noreply 地址。
+- 49 个游戏技能图标和技能目录来自无项目级许可证的社区快照；保留当前功能，但在 README、NOTICE、LICENSE 和包内 notice 中明确来源、权利边界和下架渠道。
+- 新增使用说明、故障排查、隐私、安全、更新记录和结构化 Bug 模板。
+- `npm run verify:release` 全部通过，npm audit 报告 0 个已知漏洞。

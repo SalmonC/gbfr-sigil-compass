@@ -10,7 +10,11 @@ data snapshot at:
 https://github.com/choeki/gbfr-relink-sim/tree/6aba7fc633e870de65f26c01462cdbe1dd6b6baa
 
 That data snapshot is pinned for reproducible offline operation. It is not
-downloaded or updated while the application is running.
+downloaded or updated while the application is running. The source repository
+did not declare a project-level redistribution license at the pinned revision.
+This provenance record is not a license grant. Game-related names, data and
+icons remain the property of their respective rights holders and are not
+relicensed by Sigil Compass.
 
 GRANBLUE FANTASY: Relink and related names and game data are property of their
 respective owners. This is an unofficial, read-only planning utility. It does

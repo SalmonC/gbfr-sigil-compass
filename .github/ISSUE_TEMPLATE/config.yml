@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用说明
+    url: https://github.com/SalmonC/gbfr-sigil-compass/blob/main/docs/user-guide.md
+    about: 第一次使用前请先阅读。
+  - name: 故障排查
+    url: https://github.com/SalmonC/gbfr-sigil-compass/blob/main/docs/troubleshooting.md
+    about: 常见启动、存档和计算问题。
+

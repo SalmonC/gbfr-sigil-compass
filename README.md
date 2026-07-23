@@ -1,46 +1,92 @@
 # 因子罗盘（Sigil Compass）
 
-面向《碧蓝幻想 Relink》Ver. 2.0.2 的离线 V+ 因子库存读取与配装工具。正式目标为 Windows x64 免安装版，同时提供 Apple Silicon macOS 验证版。
+《碧蓝幻想 Relink》V+ 因子配装工具。它会只读解析本地存档，根据现有库存计算配装方案，适合因子较多、不想逐页翻找的玩家。
 
-## 使用方式
+> 当前公开版为 Windows x64 `v0.2.0`。项目是非官方玩家工具，与 Cygames、发行商及平台方无关。
 
-Windows：从 GitHub Releases 下载 Windows 便携包，解压后双击 `Sigil-Compass.exe`。macOS：解压后打开 `Sigil Compass.app`。应用已封入 Electron、.NET Engine、只读存档 Worker 和固定技能目录，不需要安装 Node.js、.NET 或连接网络。
+## 主要功能
 
-1. 建议先自行备份游戏存档，再点击“读取存档”选择 `SaveData*.dat`。应用只读解析，不会修改或自动备份原存档。
-2. 点击右侧任一目标区域将其激活，再从左侧技能池添加；点击目标中的技能即可删除。
-3. 点击“开始分析”。最多显示排序后的前 10 个逻辑方案；同一主副词条组合可合并显示数量，实例等级只用于同方案实体选择和排序。
-4. 方案可命名后保存在本机，也可复制带名称、顺序和选项的 `GBFR-RANK-3` 分享字符串。
+- 直接读取 `SaveData*.dat`，自动整理持有的双词条因子。
+- 设置必须满足、可选目标，以及基础、攻击、防御类主词条。
+- 将不想要的技能分为“不能出现”和“尽量避开”。
+- 按目标完成情况、屏蔽技能、因子数量和等级等规则计算前 10 套方案。
+- 保存和分享命名方案；更新库存后可以重新计算。
+- 查看全部持有因子，并按技能、分类、等级和占用状态筛选。
+- 确认角色配装后，占用具体因子，避免多个角色使用同一枚因子。
 
-存档导入采用一次性路径授权，并先复制到应用私有临时快照后解析。原存档不会交给可写组件，校验失败会直接拒绝。应用会记住上次成功读取的路径和因子库存快照，但启动时不会自动重读；存档变化后需要手动点击“读取存档”更新。
+完整排序规则见 [配装匹配与排序规格](docs/architecture/ranking-specification.md)。
 
-## 内置测试目标
+## 下载与运行
 
-首次启动会载入“欧羽尼高手-截图前16项”：图片前 16 个技能按出现次数录入，前 8 个为必须满足；基础能力主词条为 3 个昏厥、2 个体力且优先保证；刀上舞、穷寇心禁止出现；坚守、格挡性能、稳如泰山为尽量避开。
+1. 打开 [Releases](https://github.com/SalmonC/gbfr-sigil-compass/releases)，下载 `Sigil-Compass-0.2.0-win-x64-portable.zip`。
+2. 解压到普通文件夹，不要直接在压缩包内运行。
+3. 双击 `Sigil-Compass.exe`。
 
-本地验证存档可读取 401 个 V+ 因子。该库存只能满足 1/5 个指定基础能力主词条，因此结果会明确显示缺少 4 个，而不是隐藏这些方案。真实存档不进入源码仓库。
+当前程序没有商业代码签名，Windows 可能弹出 SmartScreen 提示。请确认文件来自本仓库 Release，并用同一 Release 中的 `SHA256SUMS.txt` 核对哈希。
 
-## 开发与验证
+详细步骤见 [使用说明](docs/user-guide.md)，常见问题见 [故障排查](docs/troubleshooting.md)。
+
+## 存档位置
+
+Windows 默认目录：
+
+```text
+%LOCALAPPDATA%\GBFR\Saved\SaveGames\
+```
+
+通常选择 `SaveData1.dat`。如果目录里有多个 `SaveData*.dat`，请选择修改时间最新的文件。应用只读取存档，不会写回或自动备份；首次使用前仍建议自行复制一份备份。
+
+## 隐私与本地数据
+
+- 存档、库存和方案不会上传，应用运行时不需要联网。
+- 读取时先创建私有临时副本，解析完成后删除；原存档不会交给可写组件。
+- 应用会保存解析后的因子清单、最近一次存档路径、方案和已确认配装，但不会保存存档副本。
+- 启动时只恢复上次的库存快照，不会自动重读存档。游戏内库存改变后，需要手动点击“读取存档”。
+
+具体保存内容和清理方法见 [隐私说明](PRIVACY.md)。
+
+## 当前限制
+
+- 技能目录以 GBFR Ver. 2.0.2 为基线，游戏更新后可能需要同步数据。
+- 只考虑带两个技能的 V+ 因子。
+- 每次最多显示排序后的前 10 套逻辑方案。
+- 极端目标组合可能触发 30 秒或状态容量上限；此时不会返回不完整结果。
+- 当前 Electron 便携包约 173 MB，解压后约 426 MB。Windows-only 的 Tauri 2 + Rust 轻量版正在迁移，目标是在功能和界面不回退的前提下显著缩小体积。
+- 当前版本未做 Windows 原生代码签名，也没有自动更新功能。
+
+## 开发
+
+环境版本由 `.node-version`、`global.json` 和 `desktop/package-lock.json` 固定。
 
 ```bash
 ./eng/verify.sh
 cd desktop
 npm ci
-npm run typecheck
-npm run test:contracts
+npm run verify:release
+```
+
+真实存档测试必须把文件放在仓库外：
+
+```bash
 GBFR_TEST_SAVE=/path/to/SaveData1.dat npm run test:engine-import
 GBFR_SAVE_FIXTURE_DIR=/path/to/SaveGames npm run test:save-fixtures
 ```
 
-发行构建：
+Windows 发行包：
 
 ```bash
 cd desktop
-npm run make:mac-arm64
 npm run make:win-x64
 ```
 
-Windows 包可在 macOS 上交叉生成并检查内容，但正式发布前仍应在干净的 Windows 10/11 x64 环境执行一次启动、导入和分析冒烟测试。
+架构入口见 [docs/architecture/README.md](docs/architecture/README.md)。Tauri 重构决策见 [ADR-0011](docs/architecture/adr/0011-windows-tauri-rust-rewrite.md)。
 
-架构与排序规则见 [架构文档](docs/architecture/README.md)，原始需求保存在 [original_requirements.md](docs/original_requirements.md)。
+## 反馈
 
-本项目是非官方工具，与 Cygames 或发行方无隶属关系。应用严格只读存档；仍建议在首次使用前自行备份。
+遇到问题请先阅读 [故障排查](docs/troubleshooting.md)，再提交 Issue。不要在公开 Issue 中上传存档；建议附上系统版本、应用版本、操作步骤、错误提示和经过遮挡的截图。
+
+安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
+
+## 权利说明
+
+仓库目前公开源代码，但尚未授予通用的开源使用许可，详见 [LICENSE.md](LICENSE.md)。游戏名称、技能名称、数据和图标归各自权利人所有，不包含在本项目代码许可中。素材来源和处理边界见 [NOTICE.md](NOTICE.md)。
