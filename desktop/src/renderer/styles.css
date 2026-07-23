@@ -76,6 +76,9 @@ h1 { font-size: 23px; letter-spacing: .04em; margin: 0 0 2px; }
 .engine-status.ready { color: var(--success); }
 .inventory-summary { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
 .inventory-summary strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.solve-time-limit { min-height: 36px; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.solve-time-limit input { width: 60px; height: 34px; border: 1px solid var(--line); border-radius: var(--radius-control); padding: 0 6px; background: var(--surface); color: var(--ink); font-variant-numeric: tabular-nums; }
+.solve-time-limit input:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
 .noticebar { min-height: 34px; display: flex; align-items: center; padding: 6px 13px; border: 1px solid var(--line); border-top: 0; background: #f5f1e8; color: #4f5b65; font-size: 13px; }
 
 .workspace { display: grid; grid-template-columns: minmax(340px, .82fr) minmax(0, 1.38fr); gap: 12px; min-height: 610px; margin-top: 12px; scroll-margin-top: 12px; }
@@ -343,6 +346,7 @@ h1 { font-size: 23px; letter-spacing: .04em; margin: 0 0 2px; }
   .profile-menu { margin-left: auto; }
   .commandbar { align-items: stretch; }
   .commandbar .secondary-action, .commandbar .primary-action { flex: 1 1 auto; }
+  .solve-time-limit { flex: 1 1 auto; justify-content: center; }
   .engine-status { flex: 1 1 100%; min-height: 30px; }
   .skill-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .target-group-heading p { font-size: 12px; line-height: 1.45; }

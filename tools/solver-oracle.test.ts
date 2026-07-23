@@ -304,7 +304,7 @@ assert.throws(
     wideInventory,
     { slots: 12, catalogSize: 24 }
   )),
-  /solver\.resource_limit/,
+  /solver\.complexity_limit/,
   'wide legal inputs must stop at the resource budget instead of exhausting the process'
 );
 

@@ -161,7 +161,7 @@ Engine 持有已验证草稿，Renderer 只持有带 revision 的 ViewModel。`A
 
 分析请求引用 `snapshotId`、规范化目标、Catalog 版本和显式 run seed。求解器按 [GBFR-RANK-3](ranking-specification.md) 生成最多 10 个结果以及 canonical assignment witness。结果引用 request hash，切换方案或库存后迟到响应不得覆盖当前页面。
 
-求解属于最坏情况下会组合爆炸的问题。当前精确 DP 每层最多保留 50,000 个语义状态和 100,000 个候选，内部墙钟为 30 秒；Renderer 在 35 秒时终止短生命周期 Worker。任何一个限制触发都返回 `solver.resource_limit`，不返回近似方案、不缓存、不允许确认。求解始终位于独立 Worker，运行期间 Renderer 保持响应。普通输入仍保持精确 Top-K 语义；复杂输入应通过减少可选目标或增加“不能出现”的技能缩小搜索空间。后续若替换为整数约束求解器，也必须保留同样的隔离和失败协议。
+求解属于最坏情况下会组合爆炸的问题。当前精确 DP 每层最多保留 50,000 个语义状态和 100,000 个候选；单次墙钟默认 30 秒，用户可设为 5–600 秒，Renderer 在所设上限后额外等待 5 秒再终止短生命周期 Worker。超时返回 `solver.time_limit`，状态容量超限返回 `solver.complexity_limit`；两者都不返回近似方案、不缓存、不允许确认。求解始终位于独立 Worker，运行期间 Renderer 保持响应。普通输入仍保持精确 Top-K 语义；复杂输入应通过减少可选目标或增加“不能出现”的技能缩小搜索空间。后续若替换为整数约束求解器，也必须保留同样的隔离和失败协议。
 
 ### 5.3 进程失败与恢复
 

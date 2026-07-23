@@ -2,7 +2,7 @@
 
 《碧蓝幻想 Relink》V+ 因子配装工具。它会只读解析本地存档，根据现有库存计算配装方案，适合因子较多、不想逐页翻找的玩家。
 
-> 当前公开版为 Windows x64 `v0.2.0`。项目是非官方玩家工具，与 Cygames、发行商及平台方无关。
+> 当前公开版为 Windows x64 `v0.2.1`。项目是非官方玩家工具，与 Cygames、发行商及平台方无关。
 
 ## 主要功能
 
@@ -18,7 +18,7 @@
 
 ## 下载与运行
 
-1. 打开 [Releases](https://github.com/SalmonC/gbfr-sigil-compass/releases)，下载 `Sigil-Compass-0.2.0-win-x64-portable.zip`。
+1. 打开 [Releases](https://github.com/SalmonC/gbfr-sigil-compass/releases)，下载 `Sigil-Compass-0.2.1-win-x64-portable.zip`。
 2. 解压到普通文件夹，不要直接在压缩包内运行。
 3. 双击 `Sigil-Compass.exe`。
 
@@ -130,7 +130,7 @@
 - 技能目录以 GBFR Ver. 2.0.2 为基线，游戏更新后可能需要同步数据。
 - 只考虑带两个技能的 V+ 因子。
 - 每次最多显示排序后的前 10 套逻辑方案。
-- 极端目标组合可能触发 30 秒或状态容量上限；此时不会返回不完整结果。
+- 单次计算默认上限为 30 秒，可在顶部设置为 5–600 秒；极端组合仍可能触发状态容量上限，此时不会返回不完整结果。
 - 当前 Electron 便携包约 173 MB，解压后约 426 MB。Windows-only 的 Tauri 2 + Rust 轻量版正在迁移，目标是在功能和界面不回退的前提下显著缩小体积。
 - 当前版本未做 Windows 原生代码签名，也没有自动更新功能。
 

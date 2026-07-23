@@ -113,7 +113,7 @@ assert.throws(
     resultLimit: 10,
     runSeed: 20260723
   }),
-  /solver\.resource_limit/
+  /solver\.complexity_limit/
 );
 const wideElapsedMs = performance.now() - wideStarted;
 global.gc();

@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import {
-  AlertTriangle, Archive, BarChart3, Check, CheckCircle2, ChevronDown,
+  AlertTriangle, Archive, BarChart3, Check, CheckCircle2, ChevronDown, ExternalLink,
   ChevronLeft, ChevronRight, Clipboard, Database, Eraser, FileUp, LayoutList,
   ListChecks, LockKeyhole, MoreHorizontal, MoveDown, MoveUp, Play, Plus, RotateCcw,
   Search, ShieldCheck, Sparkles, Trash2, X
@@ -37,6 +37,10 @@ type SaveStatus = 'saving' | 'saved' | 'failed';
 
 const catalog = catalogJson as CatalogData;
 const fixture = fixtureJson as BuildProfile;
+const SOLVE_TIME_LIMIT_STORAGE_KEY = 'sigil-compass.solve-time-limit-seconds';
+const DEFAULT_SOLVE_TIME_LIMIT_SECONDS = 30;
+const MIN_SOLVE_TIME_LIMIT_SECONDS = 5;
+const MAX_SOLVE_TIME_LIMIT_SECONDS = 600;
 let solverWorker: Worker | null = null;
 let nextSolverRequestId = 1;
 const pendingSolverRequests = new Map<number, {
@@ -91,15 +95,18 @@ function cancelSolverWork(): void {
 
 function solveInWorker(request: SolverRequest): Promise<SolverAnalysis> {
   const requestId = nextSolverRequestId++;
+  const timeoutMs = Math.max(10_000, Math.min(
+    (request.timeLimitMs ?? DEFAULT_SOLVE_TIME_LIMIT_SECONDS * 1_000) + 5_000,
+    MAX_SOLVE_TIME_LIMIT_SECONDS * 1_000 + 5_000));
   return new Promise((resolve, reject) => {
     let worker: Worker | null = null;
     try {
       worker = getSolverWorker();
       const timeoutId = window.setTimeout(() => {
         if (!pendingSolverRequests.has(requestId)) return;
-        rejectPendingSolverRequests('solver.resource_limit');
+        rejectPendingSolverRequests('solver.time_limit');
         if (worker) disposeSolverWorker(worker);
-      }, 35_000);
+      }, timeoutMs);
       pendingSolverRequests.set(requestId, { resolve, reject, timeoutId });
       worker.postMessage({ requestId, request });
     } catch (error) {
@@ -110,6 +117,12 @@ function solveInWorker(request: SolverRequest): Promise<SolverAnalysis> {
       reject(error);
     }
   });
+}
+
+function readSolveTimeLimitSeconds(): number {
+  const stored = Number.parseInt(window.localStorage.getItem(SOLVE_TIME_LIMIT_STORAGE_KEY) ?? '', 10);
+  if (!Number.isFinite(stored)) return DEFAULT_SOLVE_TIME_LIMIT_SECONDS;
+  return Math.max(MIN_SOLVE_TIME_LIMIT_SECONDS, Math.min(stored, MAX_SOLVE_TIME_LIMIT_SECONDS));
 }
 
 const sectionMeta: Record<Domain, { title: string; help: string; tone: string }> = {
@@ -291,6 +304,7 @@ function App() {
   const [activePageSection, setActivePageSection] = useState<PageSection>('targets');
   const [resultScrollRequest, setResultScrollRequest] = useState(0);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [solveTimeLimitSeconds, setSolveTimeLimitSeconds] = useState(readSolveTimeLimitSeconds);
   const targetsRef = useRef<HTMLElement>(null);
   const resultsRef = useRef<HTMLElement>(null);
   const activeRunRef = useRef<{ runId: number; requestKey: string } | null>(null);
@@ -324,6 +338,10 @@ function App() {
   const cacheStatus: CacheStatus = analysisContext
     ? getCacheStatus(activeRecord.cache, analysisContext)
     : activeRecord.cache ? 'inventory-changed' : 'none';
+
+  useEffect(() => {
+    window.localStorage.setItem(SOLVE_TIME_LIMIT_STORAGE_KEY, String(solveTimeLimitSeconds));
+  }, [solveTimeLimitSeconds]);
 
   useEffect(() => {
     if (!window.gbfrDesktop) {
@@ -617,7 +635,8 @@ function App() {
         inventory: context.availableInventory,
         maxSlots: 12,
         resultLimit: 10,
-        runSeed
+        runSeed,
+        timeLimitMs: solveTimeLimitSeconds * 1_000
       });
       const activeRun = activeRunRef.current;
       if (!activeRun || activeRun.runId !== runId || activeRun.requestKey !== context.requestKey) return;
@@ -633,9 +652,13 @@ function App() {
       if (!activeRunRef.current || activeRunRef.current.runId !== runId) return;
       activeRunRef.current = null;
       const errorCode = error instanceof Error ? error.message : '未知错误';
-      const message = errorCode === 'solver.resource_limit'
-        ? '这组目标在 30 秒或安全容量内没有算完。可以减少可选目标，或增加“不能出现”的技能后重试。'
-        : errorCode;
+      const message = errorCode === 'solver.time_limit'
+        ? `计算达到 ${solveTimeLimitSeconds} 秒上限。可以提高计算上限，或减少可选目标后重试。`
+        : errorCode === 'solver.complexity_limit'
+          ? '组合状态超过安全容量。延长时间通常无效，请减少可选目标，或增加“不能出现”的技能后重试。'
+          : errorCode === 'solver.resource_limit'
+            ? '计算达到安全上限。请简化目标后重试。'
+            : errorCode;
       dispatchAnalysis({ type: 'reject', runId, message });
       setNotice(`计算失败：${message}`);
     }
@@ -906,6 +929,20 @@ function App() {
         ? <><Database size={17} /><strong>{inventory.sigils.length}</strong> 个双词条因子 · {analysisContext?.availableInventory.length ?? 0} 个当前可用
           {inventory.cachedAt && <span>· 读取于 {new Date(inventory.cachedAt).toLocaleString('zh-CN')}</span>}</>
         : '尚未读取存档'}</div>
+      {appPage === 'planner' && <label className="solve-time-limit">
+        <span>计算上限</span>
+        <input type="number" min={MIN_SOLVE_TIME_LIMIT_SECONDS} max={MAX_SOLVE_TIME_LIMIT_SECONDS}
+          value={solveTimeLimitSeconds} onChange={event => {
+            const value = Number.parseInt(event.target.value, 10);
+            if (Number.isFinite(value)) setSolveTimeLimitSeconds(Math.max(
+              MIN_SOLVE_TIME_LIMIT_SECONDS, Math.min(value, MAX_SOLVE_TIME_LIMIT_SECONDS)));
+          }} />
+        <span>秒</span>
+        <HelpPopover label="计算上限说明" text="单次计算默认最多运行 30 秒，可设为 5–600 秒。若组合状态超过安全容量，计算仍会提前停止，以免占用过多内存。" />
+      </label>}
+      <button className="secondary-action" type="button" onClick={() => void window.gbfrDesktop.openProjectPage()}>
+        <ExternalLink size={17} />GitHub
+      </button>
       {appPage === 'planner' && <button className="primary-action" type="button" disabled={!canAnalyze} onClick={() => void analyze(false)}>
         <Play size={17} fill="currentColor" />{analysisRun.phase === 'running' ? '计算中…' : '开始分析'}
       </button>}

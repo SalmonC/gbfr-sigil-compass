@@ -35,7 +35,9 @@ interface EvaluatedCoverage {
 // than exhausting the renderer process and losing the whole UI.
 const MAX_LAYER_STATES = 50_000;
 const MAX_LAYER_VARIANTS = 100_000;
-const MAX_SOLVE_MILLISECONDS = 30_000;
+const DEFAULT_SOLVE_MILLISECONDS = 30_000;
+const MIN_SOLVE_MILLISECONDS = 5_000;
+const MAX_SOLVE_MILLISECONDS = 600_000;
 
 function hashNumber(value: string): number {
   return Number.parseInt(value.slice(2), 16) >>> 0;
@@ -185,6 +187,9 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
   const startedAt = Date.now();
   let candidateAttemptCount = 0;
   const resultLimit = Math.max(1, Math.min(request.resultLimit, 10));
+  const timeLimitMs = Math.max(
+    MIN_SOLVE_MILLISECONDS,
+    Math.min(request.timeLimitMs ?? DEFAULT_SOLVE_MILLISECONDS, MAX_SOLVE_MILLISECONDS));
   if (!Number.isInteger(request.maxSlots) || request.maxSlots < 1 || request.maxSlots > 12) {
     throw new Error('solver.max_slots_invalid');
   }
@@ -313,8 +318,8 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
         for (let selectedCount = 0; selectedCount <= maxCount; selectedCount++) {
           candidateAttemptCount++;
           if ((candidateAttemptCount & 0x7ff) === 0
-            && Date.now() - startedAt > MAX_SOLVE_MILLISECONDS) {
-            throw new Error('solver.resource_limit');
+            && Date.now() - startedAt > timeLimitMs) {
+            throw new Error('solver.time_limit');
           }
           if (selectedCount > 0) runningLevel += group.instances[selectedCount - 1]!.sigilLevel;
           const totalCounts = [...variant.totalCounts];
@@ -358,7 +363,7 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
           layerVariantCount += addVariant(bucket, candidate, resultLimit);
           next.set(key, bucket);
           if (next.size > MAX_LAYER_STATES || layerVariantCount > MAX_LAYER_VARIANTS) {
-            throw new Error('solver.resource_limit');
+            throw new Error('solver.complexity_limit');
           }
         }
       }

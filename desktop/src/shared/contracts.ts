@@ -28,6 +28,7 @@ export interface DesktopApi {
   getCachedInventory(): Promise<ImportedInventory | null>;
   chooseSaveFile(): Promise<SaveFileGrant | null>;
   importSaveFile(grantId: string): Promise<ImportedInventory>;
+  openProjectPage(): Promise<void>;
 }
 
 export interface RawSigil {

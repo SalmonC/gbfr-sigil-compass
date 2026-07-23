@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import type { OpenDialogOptions } from 'electron';
 import { copyFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -11,6 +11,7 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 const grants = new PathGrantRegistry();
 const engine = new EngineClient();
+const PROJECT_URL = 'https://github.com/SalmonC/gbfr-sigil-compass';
 
 app.commandLine.appendSwitch('disable-http-cache');
 
@@ -28,6 +29,11 @@ function validateSender(frameUrl: string): boolean {
 
 function registerIpc(snapshotStore: InventorySnapshotStore): void {
   const activeImports = new Set<number>();
+  ipcMain.handle('app:open-project', async event => {
+    if (!event.senderFrame || !validateSender(event.senderFrame.url)) throw new Error('desktop.protocol.sender_rejected');
+    await shell.openExternal(PROJECT_URL);
+  });
+
   ipcMain.handle('engine:get-hello', event => {
     if (!event.senderFrame || !validateSender(event.senderFrame.url)) throw new Error('desktop.protocol.sender_rejected');
     return engine.getHello();
