@@ -7,6 +7,7 @@
 - [测试策略](testing-strategy.md)：测试金字塔、契约测试、golden fixtures 和确定性验证。
 - [匹配与排序规格](ranking-specification.md)：`GBFR-RANK-3`、三类主词条、双层屏蔽、方案身份和 Top-10 比较器。
 - [目标配置交互](block-pool-ui.md)：统一技能池、子目标激活、动态容量、问号气泡、互斥原因和无障碍状态。
+- [ADR-0011：Windows-only Tauri 2 + Rust 轻量化重构](adr/0011-windows-tauri-rust-rewrite.md)：Electron 可用基线之后的技术栈、迁移边界和验收门槛。
 - [ADR-0010：方案缓存、因子占用与计算状态机](adr/0010-cache-reservations-and-analysis-state.md)：实例身份、缓存键、确认冲突和求解触发边界。
 - [ADR](adr/)：已经接受的架构决策及其后果。
 

@@ -170,9 +170,10 @@ Phase 14：Windows 可用版修复与轻量化重构准备
 - [x] 修复宽屏下技能池内部滚动区与外框高度脱节
 - [x] 完成回归测试与真实存档性能验证
 - [x] 打包 Windows x64 v0.2.0（轻量化版本起不再构建 macOS）
-- [ ] 提交、推送并发布 v0.2.0
-- [ ] 核实参考项目部署模型并冻结轻量化重构 ADR
-- **Status:** in progress
+- [x] 提交、推送并发布 v0.2.0
+- [x] 核实参考项目部署模型并冻结 Windows-only Tauri 2 + Rust 重构 ADR
+- [x] 编写 Windows Codex 开发环境与换机交接清单
+- **Status:** complete
 
 ## Key Questions
 
