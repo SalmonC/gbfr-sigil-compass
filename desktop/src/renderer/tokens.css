@@ -1,0 +1,56 @@
+:root {
+  font-family: "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  color: #182731;
+  background: #eeece7;
+  font-synthesis: none;
+
+  --color-canvas: #eeece7;
+  --color-surface: #fbfaf7;
+  --color-surface-strong: #ffffff;
+  --color-surface-muted: #f1eee7;
+  --color-ink: #182731;
+  --color-text-muted: #55636d;
+  --color-text-subtle: #69747c;
+  --color-line: #c9c2b5;
+  --color-line-strong: #aca293;
+  --color-primary: #213746;
+  --color-primary-hover: #2c485b;
+  --color-on-primary: #ffffff;
+  --color-accent: #9b793e;
+  --color-accent-soft: #efe3c9;
+  --color-on-accent: #5e461d;
+  --color-focus: #356a8a;
+  --color-danger: #7c302b;
+  --color-danger-soft: #f4e2df;
+  --color-warning: #6d4719;
+  --color-warning-soft: #f4e8d3;
+  --color-success: #355e4a;
+  --color-success-soft: #e6f0ea;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 4px;
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-panel: 10px;
+
+  --control-compact: 32px;
+  --control-default: 36px;
+  --control-primary: 40px;
+
+  --shadow-panel: 0 6px 20px rgba(24, 39, 49, .06);
+  --shadow-overlay: 0 22px 70px rgba(0, 0, 0, .3);
+
+  --z-sticky: 20;
+  --z-popover: 40;
+  --z-toast: 60;
+  --z-dialog: 100;
+
+  --motion-fast: 140ms;
+  --motion-default: 200ms;
+}

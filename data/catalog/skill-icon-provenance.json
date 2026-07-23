@@ -1,0 +1,204 @@
+{
+  "sourceProject": "choeki/gbfr-relink-sim",
+  "sourceCommit": "6aba7fc633e870de65f26c01462cdbe1dd6b6baa",
+  "sourceDirectory": "public/icons",
+  "note": "Pinned game UI assets used by this unofficial local build; rights remain with their respective owners.",
+  "files": [
+    {
+      "file": "Cmn_icskill_01_02.png",
+      "sha256": "f080ac916012275c8f88a2ca13f23ce2e0a303b80c92cd2fa7683bcc2b5c30fe"
+    },
+    {
+      "file": "Cmn_icskill_01_03.png",
+      "sha256": "12fe114651a9634ab504480be2cf70eb8067cf35fdfa93cd7c2b7ff6f928d083"
+    },
+    {
+      "file": "Cmn_icskill_01_04.png",
+      "sha256": "bf86cb85d887a4e5a7fa886a2381614907595334ab8bbfdfc1b0f6268bf70092"
+    },
+    {
+      "file": "Cmn_icskill_02_00.png",
+      "sha256": "baa86ee50f16f1816bc025896da14b37b4e5a7ac5d3544a8ed099dbccaf6e320"
+    },
+    {
+      "file": "Cmn_icskill_02_01.png",
+      "sha256": "435249d2d8c7abfbe51ff121891e034b487066d81a6b469a1e40d9a641addf1f"
+    },
+    {
+      "file": "Cmn_icskill_02_02.png",
+      "sha256": "0edf371343652a32cdfedf16824d12332c97c152afd74f68bff0cb8531c3b5c4"
+    },
+    {
+      "file": "Cmn_icskill_02_03.png",
+      "sha256": "daeeb0a03ac68fa5cfe919f47631151c885e19efc7ece9a6ae745f98e2a6a603"
+    },
+    {
+      "file": "Cmn_icskill_02_04.png",
+      "sha256": "473a538808e94b48c2624a3f56a840fa2543d4a6ba038c9cae900630bcb5d2d8"
+    },
+    {
+      "file": "Cmn_icskill_02_05.png",
+      "sha256": "4ff242c8d57e2145b27fbbb1883ff13f50f2c7f95a27da064c5fe7471f87829f"
+    },
+    {
+      "file": "Cmn_icskill_02_07.png",
+      "sha256": "bf69854b8bbdc193c0b94aca0b7a83d7dd352004f256a3bdc71fefbff84f1bff"
+    },
+    {
+      "file": "Cmn_icskill_02_08.png",
+      "sha256": "df37b8d157a89e53e818f7b224bafec070794ec8acee644d8eb5c71b94651601"
+    },
+    {
+      "file": "Cmn_icskill_03_00.png",
+      "sha256": "5165c7daa05f4f3d68366f0a4777735180cd858ce6d6afe2186a607d2c4571e0"
+    },
+    {
+      "file": "Cmn_icskill_03_01.png",
+      "sha256": "a5be48c03c1b303b6d393f59d77c16e09d0ddba2b3febe56e4e6cf0ce5cbe8bc"
+    },
+    {
+      "file": "Cmn_icskill_03_02.png",
+      "sha256": "c42da4c33f03c7aa1875be3d10e3e3fcbc42261704182394affa9a876810b758"
+    },
+    {
+      "file": "Cmn_icskill_03_03.png",
+      "sha256": "54408d66fda1d42676a8fe8ef258c39f2edcb248b6d2ba120adcdacf13eaa770"
+    },
+    {
+      "file": "Cmn_icskill_03_04.png",
+      "sha256": "1d107597fde6792aa6b7eaa0e1e189e29fa19168b1b71a6688c2a0063dca07c8"
+    },
+    {
+      "file": "Cmn_icskill_03_05.png",
+      "sha256": "bcc732bc87ea1c17d3c53436cc68e1899819fb64a2709cc719b8359418a619a8"
+    },
+    {
+      "file": "Cmn_icskill_03_06.png",
+      "sha256": "63ff32a72453ab4d7bcfe7339e4fa511dfad8440875f56d08e7e9d95adbc683d"
+    },
+    {
+      "file": "Cmn_icskill_03_07.png",
+      "sha256": "715dea2c7017c074ed034db16f85c123fa4fb32137695ce704303e4dc13b90f3"
+    },
+    {
+      "file": "Cmn_icskill_03_08.png",
+      "sha256": "2bafb967a1482a9da0e38c58298ddab78a8630063986de2b6af4c3452a5b0831"
+    },
+    {
+      "file": "Cmn_icskill_03_09.png",
+      "sha256": "4194e31b878e172583480396446184859dfb6a9839cf304e4b1443143c0ea757"
+    },
+    {
+      "file": "Cmn_icskill_03_10.png",
+      "sha256": "ed91e0d2063e57af0cfa404f5b2db28e350317eedb5931a08c0b1b8785d63d0c"
+    },
+    {
+      "file": "Cmn_icskill_03_11.png",
+      "sha256": "94bf2f436adc5e6cc481dc5ab7290250d4591ed21df0b8d6c47e288b485bafa9"
+    },
+    {
+      "file": "Cmn_icskill_03_12.png",
+      "sha256": "36d23881a524a938145a6d68888f8391b12d42c9087a90c8ac156cac5adfb963"
+    },
+    {
+      "file": "Cmn_icskill_03_13.png",
+      "sha256": "55fe66b30537cf144439476d0857971c371ed43608a31c87865024cd90f18c6e"
+    },
+    {
+      "file": "Cmn_icskill_03_14.png",
+      "sha256": "c18cbcd3274d3123695c710c904ebe674b2f08b6942c97f2d2baa8fa7e0f3093"
+    },
+    {
+      "file": "Cmn_icskill_03_15.png",
+      "sha256": "4d5875100885e5eea5b2f478fecc111506acb06304ab2a7136a2742edb167ee6"
+    },
+    {
+      "file": "Cmn_icskill_03_16.png",
+      "sha256": "da013896bfa287cf0e2e580db4e0a5b6599089f7e522d9f0c37c70d167fac90e"
+    },
+    {
+      "file": "Cmn_icskill_03_17.png",
+      "sha256": "afbcf676ed7b53456ef20e5bb2ade48594509d3fb6c38ad9854ddd5651828904"
+    },
+    {
+      "file": "Cmn_icskill_03_18.png",
+      "sha256": "bbc8d278fd585e18fbbad9d0f7bce3f454a1d24de79f69d03e0b2d085cd8c736"
+    },
+    {
+      "file": "Cmn_icskill_03_19.png",
+      "sha256": "94d1f8bf3af05bc4d71b42e9b5d7d30fad33950ec90fa11529f40cad656c88ba"
+    },
+    {
+      "file": "Cmn_icskill_04_00.png",
+      "sha256": "729fba099706715cad46f396412f52c96807b01c2d866d613cff3d64d0448795"
+    },
+    {
+      "file": "Cmn_icskill_04_01.png",
+      "sha256": "6500432a6dcaa4f456f870bc54b4c4d0bf0d33973c3d501dc33b5007f730f53c"
+    },
+    {
+      "file": "Cmn_icskill_04_02.png",
+      "sha256": "dded4346124176b8080faf97dcd91695bbcb194a9f66bd16dba2d0ab7e0dbf42"
+    },
+    {
+      "file": "Cmn_icskill_04_03.png",
+      "sha256": "e0674e063dae89f3749c495e2b2c4e3efad30ff683369fdb7037e99c34b6d5b2"
+    },
+    {
+      "file": "Cmn_icskill_04_04.png",
+      "sha256": "c22f4bb4666800e72a8076208c4c362b96f7461045eac06a91e98e478b8d7535"
+    },
+    {
+      "file": "Cmn_icskill_05_00.png",
+      "sha256": "47a1edd3264987d987fc48f89171b50d630835e93be74f991e035fb8bc0be1e1"
+    },
+    {
+      "file": "Cmn_icskill_05_01.png",
+      "sha256": "cfdbd7ad05438c8fe88db22a8bfe20e25d6a7dd1623dad667d08460036836a12"
+    },
+    {
+      "file": "Cmn_icskill_05_02.png",
+      "sha256": "cdc773fc2073bfc6443354d645adff35fa08bd6a6a10323ae1734609f6a1aacc"
+    },
+    {
+      "file": "Cmn_icskill_05_03.png",
+      "sha256": "2fbfa67a2d06718ebb06eb4411566685f70486f8394f311eb0ec7dd40f68c1d1"
+    },
+    {
+      "file": "Cmn_icskill_05_04.png",
+      "sha256": "e1cea37c2399886e293d1c5904783faf2c597ec25f5b8f1a83653ef7566755ed"
+    },
+    {
+      "file": "Cmn_icskill_05_05.png",
+      "sha256": "31b9d43f3466f81babd0c376619764a5aff374aab6c401aa49544039586bcab1"
+    },
+    {
+      "file": "Cmn_icskill_05_08.png",
+      "sha256": "9f46bb7dee91c950b935fc1d4378ca3d602f7a32d1cd69adea1c9da2466e03b1"
+    },
+    {
+      "file": "Cmn_icskill_05_10.png",
+      "sha256": "c08cfc202f4b2b42f8fc9c39b5d42342fdbc81b7a4b207fc604bbd2c8f5c11af"
+    },
+    {
+      "file": "Cmn_icskill_05_11.png",
+      "sha256": "723effb16f7f10a3c193bc2da01855f7ec26beb52183318f91f4a8b71d9a526d"
+    },
+    {
+      "file": "Cmn_icskill_05_12.png",
+      "sha256": "8930a6d652471652bb8bbabffd674c11c38e339dfba9783961cffe526053852d"
+    },
+    {
+      "file": "Cmn_icskill_05_13.png",
+      "sha256": "5fc56aa64291e43420edb89a34d95c7f070e8fbef5defd51f186b43a96bfbf35"
+    },
+    {
+      "file": "Game_skill_sigil_booster.png",
+      "sha256": "3ea288ed88fe09c2b49431487267a2f80fc174bb310f577c8c0d58766a211b6a"
+    },
+    {
+      "file": "Icon_Trait_ATK.png",
+      "sha256": "01d7124dcf3fe09462b3e8d4828000a3f13f24d99a30fcdcadfe902bf22f5680"
+    }
+  ]
+}

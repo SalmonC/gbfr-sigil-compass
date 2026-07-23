@@ -1,0 +1,32 @@
+// Minimal read-only schema for the GBFR save tables used by this application.
+// Field layout is an interoperability fact documented by Nenkai/GBFRDataTools.
+attribute "fs_serializer";
+
+namespace GBFRTool.SaveReader.Core.FlatBuffers;
+
+table BoolSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[bool]; }
+table ByteSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[byte]; }
+table UByteSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[ubyte]; }
+table ShortSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[short]; }
+table UShortSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[ushort]; }
+table IntSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[int]; }
+table UIntSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[uint]; }
+table LongSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[long]; }
+table ULongSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[ulong]; }
+table FloatSaveDataUnit { IDType:uint; UnitID:uint; ValueData:[float]; }
+
+table SaveDataBinary (fs_serializer) {
+    VersionMaybe:uint;
+    BoolTable:[BoolSaveDataUnit];
+    ByteTable:[ByteSaveDataUnit];
+    UByteTable:[UByteSaveDataUnit];
+    ShortTable:[ShortSaveDataUnit];
+    UShortTable:[UShortSaveDataUnit];
+    IntTable:[IntSaveDataUnit];
+    UIntTable:[UIntSaveDataUnit];
+    LongTable:[LongSaveDataUnit];
+    ULongTable:[ULongSaveDataUnit];
+    FloatTable:[FloatSaveDataUnit];
+}
+
+root_type SaveDataBinary;

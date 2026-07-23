@@ -1,0 +1,17 @@
+Sigil Compass — third-party notices
+
+This application bundles Electron, Chromium, Node.js, React, Lucide,
+AJV, FlatSharp and .NET runtime components. Their license texts and notices
+are included with the packaged application where supplied by their respective
+distributions. Electron also includes LICENSE and LICENSES.chromium.html.
+
+The offline Chinese skill catalog was normalized from the publicly available
+data snapshot at:
+https://github.com/choeki/gbfr-relink-sim/tree/6aba7fc633e870de65f26c01462cdbe1dd6b6baa
+
+That data snapshot is pinned for reproducible offline operation. It is not
+downloaded or updated while the application is running.
+
+GRANBLUE FANTASY: Relink and related names and game data are property of their
+respective owners. This is an unofficial, read-only planning utility. It does
+not modify save files and is not affiliated with or endorsed by Cygames.

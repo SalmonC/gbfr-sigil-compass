@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gbfr-tool.local/contracts/desktop/v1/target-draft.schema.json",
+  "title": "Target Draft Messages",
+  "$defs": {
+    "domain": {
+      "enum": ["mandatory", "basicPrimary", "optional", "basicSubstitutionOrder", "forbidden", "avoid"]
+    },
+    "skillId": {
+      "type": "string",
+      "pattern": "^test\\.[a-z0-9._-]+$",
+      "maxLength": 128
+    },
+    "targetEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetEntryId", "skillId", "domain", "position"],
+      "properties": {
+        "targetEntryId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "skillId": { "$ref": "#/$defs/skillId" },
+        "domain": { "$ref": "#/$defs/domain" },
+        "position": { "type": "integer", "minimum": 0, "maximum": 511 }
+      }
+    },
+    "draftView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftId", "revision", "entries", "optionalCount", "optionalLimit", "optionalRemaining", "overflowCount", "canAnalyze"],
+      "properties": {
+        "draftId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "revision": { "type": "integer", "minimum": 0 },
+        "entries": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/targetEntry" } },
+        "optionalCount": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "optionalLimit": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "optionalRemaining": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "overflowCount": { "type": "integer", "minimum": 0, "maximum": 512 },
+        "canAnalyze": { "type": "boolean" }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "title": "OpenTargetDraftRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profileId": { "type": ["string", "null"], "maxLength": 128 }
+      }
+    },
+    {
+      "title": "ApplyTargetEditRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftId", "baseRevision", "editId", "edit"],
+      "properties": {
+        "draftId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "baseRevision": { "type": "integer", "minimum": 0 },
+        "editId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["add", "remove"] },
+            "domain": { "oneOf": [{ "$ref": "#/$defs/domain" }, { "type": "null" }] },
+            "skillId": { "oneOf": [{ "$ref": "#/$defs/skillId" }, { "type": "null" }] },
+            "targetEntryId": { "type": ["string", "null"], "maxLength": 64 },
+            "insertAfterEntryId": { "type": ["string", "null"], "maxLength": 64 }
+          }
+        }
+      }
+    },
+    { "$ref": "#/$defs/draftView" }
+  ]
+}

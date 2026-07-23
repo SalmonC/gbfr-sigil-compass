@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 3,
+  "catalogVersion": "gbfr-2.0.2-6aba7fc633e8-r2",
+  "name": "欧羽尼高手-截图前16项",
+  "mandatory": [
+    "HASH_A7726190",
+    "HASH_9232DC17",
+    "HASH_73220725",
+    "HASH_A898E283",
+    "HASH_D029FE08",
+    "SKILL_020_00",
+    "SKILL_020_00",
+    "SKILL_020_00"
+  ],
+  "basicPrimary": [
+    "SKILL_004_00",
+    "SKILL_004_00",
+    "SKILL_004_00",
+    "SKILL_001_00",
+    "SKILL_001_00"
+  ],
+  "forceBasicPrimary": true,
+  "allowBasicSubstitution": false,
+  "basicSubstitutionOrder": [],
+  "attackPrimary": [],
+  "forceAttackPrimary": false,
+  "defensePrimary": [],
+  "forceDefensePrimary": false,
+  "optional": [
+    "SKILL_020_00",
+    "SKILL_233_00",
+    "SKILL_234_00",
+    "SKILL_151_00",
+    "SKILL_151_00",
+    "SKILL_151_00",
+    "SKILL_064_00",
+    "SKILL_146_00"
+  ],
+  "forbidden": ["SKILL_158_00", "SKILL_154_00"],
+  "avoid": ["SKILL_085_00", "SKILL_060_00", "SKILL_096_00"]
+}

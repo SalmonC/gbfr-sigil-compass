@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GBFRTool.Domain/GBFRTool.Domain.csproj" />
+    <Project Path="src/GBFRTool.Application/GBFRTool.Application.csproj" />
+    <Project Path="src/GBFRTool.Contracts/GBFRTool.Contracts.csproj" />
+    <Project Path="src/GBFRTool.SaveReader.Core/GBFRTool.SaveReader.Core.csproj" />
+    <Project Path="src/GBFRTool.SaveReader.Worker/GBFRTool.SaveReader.Worker.csproj" />
+    <Project Path="src/GBFRTool.Engine.Host/GBFRTool.Engine.Host.csproj" />
+    <Project Path="src/GBFRTool.Infrastructure.SaveReader.Client/GBFRTool.Infrastructure.SaveReader.Client.csproj" />
+    <Project Path="src/GBFRTool.Infrastructure.Solver.OrTools/GBFRTool.Infrastructure.Solver.OrTools.csproj" />
+    <Project Path="src/GBFRTool.Infrastructure.Persistence.Sqlite/GBFRTool.Infrastructure.Persistence.Sqlite.csproj" />
+    <Project Path="src/GBFRTool.Infrastructure.Catalog.Json/GBFRTool.Infrastructure.Catalog.Json.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GBFRTool.ArchitectureTests/GBFRTool.ArchitectureTests.csproj" />
+  </Folder>
+</Solution>

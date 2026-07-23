@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>GBFRTool.SaveReader.Worker</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../GBFRTool.Contracts/GBFRTool.Contracts.csproj" />
+    <ProjectReference Include="../GBFRTool.SaveReader.Core/GBFRTool.SaveReader.Core.csproj" />
+  </ItemGroup>
+</Project>

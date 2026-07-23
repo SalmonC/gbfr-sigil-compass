@@ -1,0 +1,59 @@
+{
+  "name": "sigil-compass-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sigil Compass — offline GBFR sigil planning desktop app",
+  "main": ".webpack/main",
+  "packageManager": "npm@11.8.0",
+  "scripts": {
+    "engine:publish": "node scripts/publish-engine.mjs",
+    "start": "npm run engine:publish && electron-forge start",
+    "typecheck": "tsc --noEmit",
+    "test:contracts": "node scripts/validate-contracts.mjs",
+    "test:profile-codec": "node --experimental-strip-types ../tools/profile-codec.test.ts",
+    "test:workspace-state": "node --experimental-strip-types ../tools/workspace-state.test.ts",
+    "test:inventory-snapshot": "node --experimental-strip-types ../tools/inventory-snapshot-store.test.ts",
+    "test:path-grants": "node --experimental-strip-types ../tools/path-grant-registry.test.ts",
+    "test:skill-icons": "node ../tools/verify-skill-icons.mjs",
+    "test:engine-import": "node scripts/test-engine-import.mjs",
+    "test:save-fixtures": "node ../tools/verify-save-fixtures.mjs",
+    "test:solver-oracle": "node --experimental-strip-types ../tools/solver-oracle.test.ts",
+    "test:performance-real": "node --expose-gc --experimental-strip-types ../tools/performance-memory.test.ts",
+    "verify:release": "npm run typecheck && npm run test:profile-codec && npm run test:workspace-state && npm run test:inventory-snapshot && npm run test:path-grants && npm run test:skill-icons && npm run test:solver-oracle",
+    "package": "npm run engine:publish && electron-forge package",
+    "make": "npm run engine:publish && electron-forge make",
+    "package:mac-arm64": "node scripts/publish-engine.mjs --rid osx-arm64 && electron-forge package --platform darwin --arch arm64",
+    "make:mac-arm64": "npm run verify:release && node scripts/publish-engine.mjs --rid osx-arm64 && electron-forge make --platform darwin --arch arm64",
+    "make:win-x64": "npm run verify:release && node scripts/publish-engine.mjs --rid win-x64 && electron-forge make --platform win32 --arch x64"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "lucide-react": "1.25.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "overrides": {
+    "tar": "7.5.21",
+    "tmp": "0.2.7",
+    "uuid": "11.1.1",
+    "webpack-dev-server": "5.2.6"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-zip": "7.11.2",
+    "@electron-forge/plugin-fuses": "7.11.2",
+    "@electron-forge/plugin-webpack": "7.11.2",
+    "@electron/fuses": "1.8.0",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "css-loader": "7.1.4",
+    "electron": "43.2.0",
+    "mini-css-extract-plugin": "2.10.2",
+    "style-loader": "4.0.0",
+    "ts-loader": "9.6.2",
+    "typescript": "6.0.3",
+    "webpack": "5.108.4",
+    "webpack-cli": "7.2.1"
+  }
+}

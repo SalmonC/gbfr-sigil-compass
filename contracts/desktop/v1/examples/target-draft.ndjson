@@ -1,0 +1,2 @@
+{"protocolVersion":1,"messageType":"engine.hello","requestId":"00000000000000000000000000000001","correlationId":"10000000000000000000000000000001","payload":{}}
+{"protocolVersion":1,"messageType":"targetDraft.open","requestId":"00000000000000000000000000000002","correlationId":"10000000000000000000000000000002","payload":{"profileId":null}}

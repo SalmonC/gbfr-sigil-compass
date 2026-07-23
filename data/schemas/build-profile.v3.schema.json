@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "catalogVersion", "name", "mandatory",
+    "basicPrimary", "forceBasicPrimary", "allowBasicSubstitution", "basicSubstitutionOrder",
+    "attackPrimary", "forceAttackPrimary", "defensePrimary", "forceDefensePrimary",
+    "optional", "forbidden", "avoid"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 3 },
+    "catalogVersion": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "mandatory": { "$ref": "#/$defs/orderedTargets" },
+    "basicPrimary": { "$ref": "#/$defs/orderedPrimaryTargets" },
+    "forceBasicPrimary": { "type": "boolean" },
+    "allowBasicSubstitution": { "type": "boolean" },
+    "basicSubstitutionOrder": { "$ref": "#/$defs/uniqueSkills" },
+    "attackPrimary": { "$ref": "#/$defs/orderedPrimaryTargets" },
+    "forceAttackPrimary": { "type": "boolean" },
+    "defensePrimary": { "$ref": "#/$defs/orderedPrimaryTargets" },
+    "forceDefensePrimary": { "type": "boolean" },
+    "optional": { "$ref": "#/$defs/orderedTargets" },
+    "forbidden": { "$ref": "#/$defs/uniqueSkills" },
+    "avoid": { "$ref": "#/$defs/uniqueSkills" }
+  },
+  "$defs": {
+    "skillId": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "orderedTargets": {
+      "type": "array",
+      "maxItems": 24,
+      "items": { "$ref": "#/$defs/skillId" }
+    },
+    "orderedPrimaryTargets": {
+      "type": "array",
+      "maxItems": 12,
+      "items": { "$ref": "#/$defs/skillId" }
+    },
+    "uniqueSkills": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/skillId" }
+    }
+  }
+}

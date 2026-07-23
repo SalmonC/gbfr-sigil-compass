@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gbfr-tool.local/contracts/desktop/v1/envelope.schema.json",
+  "title": "DesktopEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocolVersion", "messageType", "requestId", "correlationId", "payload"],
+  "properties": {
+    "protocolVersion": { "const": 1 },
+    "messageType": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "correlationId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "payload": { "type": "object" }
+  }
+}
