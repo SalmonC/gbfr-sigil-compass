@@ -46,6 +46,25 @@ export interface RawSigil {
   readonly wornByCharacterId: string | null;
 }
 
+/** One persisted inventory row. Physical save positions are discarded after import. */
+export interface FactorStock {
+  readonly groupKey: string;
+  readonly primaryTraitHash: number;
+  readonly secondaryTraitHash: number;
+  readonly sigilLevel: number;
+  readonly count: number;
+  readonly wornCount: number;
+}
+
+/** Ephemeral solver/UI entry expanded from a stock count. */
+export interface LogicalSigil {
+  readonly groupKey: string;
+  readonly stockOrdinal: number;
+  readonly primaryTraitHash: number;
+  readonly secondaryTraitHash: number;
+  readonly sigilLevel: number;
+}
+
 export interface DesktopDiagnostic {
   readonly severity: string;
   readonly code: string;
@@ -53,11 +72,19 @@ export interface DesktopDiagnostic {
   readonly metadata: Readonly<Record<string, string>> | null;
 }
 
-export interface ImportedInventory {
+export interface ParsedInventory {
   readonly inventoryId: string;
   readonly parserVersion: string;
   readonly saveFormatVersion: string;
   readonly sigils: readonly RawSigil[];
+  readonly diagnostics: readonly DesktopDiagnostic[];
+}
+
+export interface ImportedInventory {
+  readonly inventoryId: string;
+  readonly parserVersion: string;
+  readonly saveFormatVersion: string;
+  readonly stocks: readonly FactorStock[];
   readonly diagnostics: readonly DesktopDiagnostic[];
   readonly sourceDisplayName?: string;
   readonly cachedAt?: string;

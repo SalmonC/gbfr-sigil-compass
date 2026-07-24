@@ -5,6 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { decodeProfile } from '../desktop/src/domain/profile-codec.ts';
 import { solveBuildWithFallback } from '../desktop/src/domain/solver.ts';
+import { aggregateRawInventory, expandStocks } from '../desktop/src/domain/inventory-groups.ts';
 import type { CatalogData, SolverAnalysis } from '../desktop/src/domain/models.ts';
 import type { RawSigil } from '../desktop/src/shared/contracts.ts';
 
@@ -25,7 +26,8 @@ const { stdout } = await promisify(execFile)('dotnet', [workerDll, '--parse', sa
   maxBuffer: 32 * 1024 * 1024,
   env: { ...process.env, DOTNET_ROLL_FORWARD: 'Major' }
 });
-const inventory = (JSON.parse(stdout) as { sigils: RawSigil[] }).sigils;
+const inventory = expandStocks(aggregateRawInventory(
+  (JSON.parse(stdout) as { sigils: RawSigil[] }).sigils));
 const traitHash = new Map(catalog.traits.map(trait => [
   trait.id,
   Number.parseInt(trait.hash.slice(2), 16) >>> 0
@@ -38,7 +40,7 @@ const relevantHashes = new Set([
   ...primaryTargets
 ]);
 const primaryRelevant = new Set(primaryTargets);
-const exactGroups = new Map<string, RawSigil[]>();
+const exactGroups = new Map<string, (typeof inventory)[number][]>();
 for (const sigil of inventory) {
   const primary = sigil.primaryTraitHash >>> 0;
   const secondary = sigil.secondaryTraitHash >>> 0;

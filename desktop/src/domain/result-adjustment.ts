@@ -1,5 +1,5 @@
-import type { RawSigil } from '../shared/contracts';
-import { factorInstanceKey, stableDigest } from './inventory-identity.ts';
+import type { LogicalSigil } from '../shared/contracts';
+import { stableDigest } from './inventory-identity.ts';
 import type { BuildProfile, CatalogData, SolverResult } from './models';
 
 function hashNumber(value: string): number {
@@ -12,15 +12,15 @@ function countItems(values: readonly number[]): Map<number, number> {
   return counts;
 }
 
-function physicalSelectionKey(selected: readonly RawSigil[]): string {
-  return selected.map(factorInstanceKey).sort().join('|');
+function logicalSelectionKey(selected: readonly LogicalSigil[]): string {
+  return selected.map(sigil => sigil.groupKey).sort().join('|');
 }
 
-export function hasSamePhysicalSelection(
-  left: readonly RawSigil[],
-  right: readonly RawSigil[]
+export function hasSameLogicalSelection(
+  left: readonly LogicalSigil[],
+  right: readonly LogicalSigil[]
 ): boolean {
-  return physicalSelectionKey(left) === physicalSelectionKey(right);
+  return logicalSelectionKey(left) === logicalSelectionKey(right);
 }
 
 /**
@@ -32,7 +32,7 @@ export function evaluateAdjustedResult(
   source: SolverResult,
   profile: BuildProfile,
   catalog: CatalogData,
-  selected: readonly RawSigil[]
+  selected: readonly LogicalSigil[]
 ): SolverResult {
   if (selected.length > 12) throw new Error('一套配装最多使用 12 枚因子。');
   const traitById = new Map(catalog.traits.map(trait => [trait.id, hashNumber(trait.hash)]));
@@ -128,7 +128,7 @@ export function evaluateAdjustedResult(
     total.set(hash, available - 1);
     return true;
   });
-  const instanceDigest = stableDigest(physicalSelectionKey(selected));
+  const instanceDigest = stableDigest(logicalSelectionKey(selected));
 
   return {
     selected: [...selected],

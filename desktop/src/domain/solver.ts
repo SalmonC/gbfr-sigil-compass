@@ -1,4 +1,4 @@
-import type { RawSigil } from '../shared/contracts';
+import type { LogicalSigil } from '../shared/contracts';
 import type { SolverAnalysis, SolverRequest, SolverResult } from './models';
 import {
   dedupeEquivalentResults, searchFactorGroupKey, targetTraitHashes
@@ -7,7 +7,7 @@ import {
 interface FactorGroup {
   readonly primary: number;
   readonly secondary: number;
-  readonly instances: readonly RawSigil[];
+  readonly instances: readonly LogicalSigil[];
   readonly key: string;
   readonly tieA: number;
   readonly tieB: number;
@@ -438,7 +438,7 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
       + (allowBasicSubstitution && substitutionHashes.includes(hash) ? basicHashes.length : 0)));
   const relevant = new Set(allHashes);
 
-  const grouped = new Map<string, RawSigil[]>();
+  const grouped = new Map<string, LogicalSigil[]>();
   for (const sigil of request.inventory) {
     const primary = sigil.primaryTraitHash >>> 0;
     const secondary = sigil.secondaryTraitHash >>> 0;
@@ -455,7 +455,7 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
     primary: instances[0]!.primaryTraitHash >>> 0,
     secondary: instances[0]!.secondaryTraitHash >>> 0,
     instances: [...instances].sort((left, right) =>
-      right.sigilLevel - left.sigilLevel || left.gemUnitId - right.gemUnitId),
+      right.sigilLevel - left.sigilLevel || left.stockOrdinal - right.stockOrdinal),
     tieA: stableCoefficient(key, request.runSeed, 0x9e3779b9),
     tieB: stableCoefficient(key, request.runSeed, 0x85ebca6b)
   })).sort((left, right) => {

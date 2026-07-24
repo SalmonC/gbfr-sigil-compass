@@ -16,7 +16,7 @@ import { factorInstanceKey, inventoryFingerprint } from '../domain/inventory-ide
 import {
   chooseGroupMember, groupInventory
 } from '../domain/inventory-groups.ts';
-import { evaluateAdjustedResult, hasSamePhysicalSelection } from '../domain/result-adjustment.ts';
+import { evaluateAdjustedResult, hasSameLogicalSelection } from '../domain/result-adjustment.ts';
 import { externalTraitLevelRule } from '../domain/trait-level-rules';
 import {
   addStoredProfile, cacheAnalysis, confirmResult, createAnalysisContext, createWorkspace,
@@ -28,7 +28,7 @@ import {
 import {
   initialAnalysisRunState, reduceAnalysisState
 } from '../domain/analysis-state';
-import type { EngineHello, ImportedInventory, RawSigil } from '../shared/contracts';
+import type { EngineHello, ImportedInventory, LogicalSigil } from '../shared/contracts';
 import {
   FactorCard, type FactorCardTag, type FactorTraitOption
 } from './components/factor-card';
@@ -203,7 +203,7 @@ function FactorGrid({
   traitByHash: ReadonlyMap<number, CatalogTrait>;
   mode?: 'result' | 'confirmed';
   editing?: {
-    readonly availableInventory: readonly RawSigil[];
+    readonly availableInventory: readonly LogicalSigil[];
     readonly onSelectInstance: (index: number, instanceKey: string) => void;
     readonly onReplace: (index: number) => void;
     readonly onDelete: (index: number) => void;
@@ -222,7 +222,7 @@ function FactorGrid({
     return trait ? [Number.parseInt(trait.hash.slice(2), 16) >>> 0] : [];
   }));
   const selectableOptions = (
-    sigil: RawSigil,
+    sigil: LogicalSigil,
     index: number,
     kind: 'primary' | 'secondary'
   ): FactorTraitOption[] => {
@@ -510,7 +510,7 @@ function App() {
   const profile = activeRecord.profile;
   const analysis = activeRecord.cache?.analysis ?? null;
   const currentInventoryFingerprint = useMemo(
-    () => inventory ? inventoryFingerprint(inventory.sigils) : null,
+    () => inventory ? inventoryFingerprint(inventory.stocks) : null,
     [inventory]);
   const confirmedMissingCount = activeRecord.confirmed && inventory
     ? confirmedAllocationShortfall(workspace, activeRecord.id, inventory)
@@ -555,11 +555,12 @@ function App() {
       .catch(() => setNotice('配装引擎没有启动。请重新打开应用。'));
     void window.gbfrDesktop.getCachedInventory().then(cached => {
       if (!cached) return;
-      const cachedFingerprint = inventoryFingerprint(cached.sigils);
+      const cachedFingerprint = inventoryFingerprint(cached.stocks);
       setInventory(cached);
       updateWorkspace(current => pruneInvalidAnalysisCaches(current, cached, cachedFingerprint));
       const time = cached.cachedAt ? new Date(cached.cachedAt).toLocaleString('zh-CN') : '上次';
-      setNotice(`已恢复 ${time} 读取的 ${cached.sourceDisplayName ?? '存档'} 库存，共 ${cached.sigils.length} 个双词条因子；原存档没有重新读取。`);
+      const count = cached.stocks.reduce((sum, stock) => sum + stock.count, 0);
+      setNotice(`已恢复 ${time} 读取的 ${cached.sourceDisplayName ?? '存档'} 库存，共 ${count} 个双词条因子；原存档没有重新读取。`);
     }).catch(() => setNotice('上次读取的因子缓存无法使用，请重新选择存档。'));
   }, []);
 
@@ -796,10 +797,11 @@ function App() {
       if (!grant) return;
       const imported = await window.gbfrDesktop.importSaveFile(grant.grantId);
       setInventory(imported);
-      const importedFingerprint = inventoryFingerprint(imported.sigils);
+      const importedFingerprint = inventoryFingerprint(imported.stocks);
       updateWorkspace(current => pruneInvalidAnalysisCaches(current, imported, importedFingerprint));
       invalidateAnalysis('库存已更新，需要重新计算。');
-      setNotice(`${grant.displayName}：读到 ${imported.sigils.length} 个双词条因子。原文件没有改动；建议你另行保留游戏存档备份。`);
+      const count = imported.stocks.reduce((sum, stock) => sum + stock.count, 0);
+      setNotice(`${grant.displayName}：读到 ${count} 个双词条因子。原文件没有改动；建议你另行保留游戏存档备份。`);
     } catch {
       setNotice('存档读取失败。请确认选择的是 SaveData*.dat，且文件没有损坏。');
     } finally {
@@ -981,7 +983,7 @@ function App() {
   function applyManualSelection(
     source: SolverResult,
     current: SolverResult,
-    selected: readonly RawSigil[],
+    selected: readonly LogicalSigil[],
     message: string
   ): void {
     if (!inventory || !analysisContext || cacheStatus !== 'current') {
@@ -1000,7 +1002,7 @@ function App() {
     }
     try {
       const adjusted = evaluateAdjustedResult(source, profile, catalog, selected);
-      const stored = hasSamePhysicalSelection(source.selected, selected) ? undefined : adjusted;
+      const stored = hasSameLogicalSelection(source.selected, selected) ? undefined : adjusted;
       updateWorkspace(currentWorkspace =>
         storeManualResult(currentWorkspace, activeRecord.id, source.signature, stored));
       setNotice(stored ? `${message}；目标完成情况已更新。` : '已恢复为原计算结果。');
@@ -1095,14 +1097,24 @@ function App() {
   const filteredInventory = useMemo(() => {
     if (!inventory) return [];
     const normalized = inventorySearch.trim().toLocaleLowerCase('zh-CN');
-    return groupInventory(inventory.sigils).map(group => {
-      const reservation = reservationsByGroup.get(group.groupKey);
+    return inventory.stocks.map(stock => {
+      const reservation = reservationsByGroup.get(stock.groupKey);
+      const representative: LogicalSigil = {
+        groupKey: stock.groupKey,
+        stockOrdinal: 0,
+        primaryTraitHash: stock.primaryTraitHash,
+        secondaryTraitHash: stock.secondaryTraitHash,
+        sigilLevel: stock.sigilLevel
+      };
       return {
-        ...group,
+        groupKey: stock.groupKey,
+        representative,
+        members: [representative],
+        count: stock.count,
         reservedCount: reservation?.count ?? 0,
-        availableCount: Math.max(0, group.count - (reservation?.count ?? 0)),
+        availableCount: Math.max(0, stock.count - (reservation?.count ?? 0)),
         reservedNames: reservation?.names ?? [],
-        wornCount: group.members.filter(item => item.wornByCharacterId).length
+        wornCount: stock.wornCount
       };
     }).filter(group => {
       const sigil = group.representative;
@@ -1219,7 +1231,7 @@ function App() {
       <div className="inventory-summary">{inventory
         ? <>
           <span className="inventory-summary-line">
-            <Database size={17} /><strong>{inventory.sigils.length}</strong>
+            <Database size={17} /><strong>{inventory.stocks.reduce((sum, stock) => sum + stock.count, 0)}</strong>
             个双词条因子 · {analysisContext?.availableInventory.length ?? 0} 个当前可用
           </span>
           {inventory.cachedAt && <span className="inventory-summary-line">
@@ -1571,7 +1583,7 @@ function App() {
       <header className="inventory-page-heading">
         <div><h2>持有因子</h2>
           <p>{inventory
-            ? `显示上次手动读取的库存快照，共 ${inventory.sigils.length} 枚双词条因子。`
+            ? `显示上次手动读取的库存快照，共 ${inventory.stocks.reduce((sum, stock) => sum + stock.count, 0)} 枚双词条因子。`
             : '读取存档后，可在这里查看每一枚双词条因子。'}</p></div>
         <HelpPopover label="库存快照" text="应用启动时只恢复上次成功读取的结果，不会重新打开存档。游戏内库存变化后，请手动点击“读取存档”更新。" />
       </header>

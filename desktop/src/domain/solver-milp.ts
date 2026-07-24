@@ -1,5 +1,5 @@
 import highsLoader from 'highs';
-import type { RawSigil } from '../shared/contracts';
+import type { LogicalSigil } from '../shared/contracts';
 import type { SolverAnalysis, SolverRequest, SolverResult } from './models';
 import {
   dedupeEquivalentResults, searchFactorGroupKey, targetTraitHashes
@@ -9,7 +9,7 @@ interface Group {
   readonly key: string;
   readonly primary: number;
   readonly secondary: number;
-  readonly instances: readonly RawSigil[];
+  readonly instances: readonly LogicalSigil[];
   readonly variables: readonly string[];
   readonly tieA: number;
   readonly tieB: number;
@@ -165,7 +165,7 @@ export async function solveBuildMilp(
     ...effectiveOptional,
     ...(allowSubstitution ? substitution : [])
   ]);
-  const grouped = new Map<string, RawSigil[]>();
+  const grouped = new Map<string, LogicalSigil[]>();
   for (const sigil of request.inventory) {
     const primary = sigil.primaryTraitHash >>> 0;
     const secondary = sigil.secondaryTraitHash >>> 0;
@@ -178,7 +178,7 @@ export async function solveBuildMilp(
   }
   const groups: Group[] = [...grouped.entries()].map(([key, instances], groupIndex) => {
     const sorted = [...instances].sort((left, right) =>
-      right.sigilLevel - left.sigilLevel || left.gemUnitId - right.gemUnitId);
+      right.sigilLevel - left.sigilLevel || left.stockOrdinal - right.stockOrdinal);
     return {
       key,
       primary: sorted[0]!.primaryTraitHash >>> 0,

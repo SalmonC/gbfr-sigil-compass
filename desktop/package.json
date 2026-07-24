@@ -1,6 +1,6 @@
 {
   "name": "sigil-compass-desktop",
-  "version": "0.2.3",
+  "version": "0.3.0-beta.1",
   "private": true,
   "license": "MIT",
   "description": "Sigil Compass — offline GBFR sigil planning desktop app",

@@ -1,4 +1,4 @@
-import type { RawSigil } from '../shared/contracts';
+import type { FactorStock, LogicalSigil, RawSigil } from '../shared/contracts';
 import { factorFingerprint, factorInstanceKey, stableDigest } from './inventory-identity.ts';
 
 export interface FactorGroupReservation {
@@ -8,46 +8,69 @@ export interface FactorGroupReservation {
 
 export interface FactorInventoryGroup {
   readonly groupKey: string;
-  readonly representative: RawSigil;
-  readonly members: readonly RawSigil[];
+  readonly representative: LogicalSigil;
+  readonly members: readonly LogicalSigil[];
   readonly count: number;
 }
 
-export function factorGroupKey(sigil: RawSigil): string {
+export function factorGroupKey(
+  sigil: Pick<RawSigil, 'primaryTraitHash' | 'secondaryTraitHash' | 'sigilLevel'>
+): string {
   return `group-v1:${factorFingerprint(sigil)}`;
 }
 
-function comparePhysicalIdentity(left: RawSigil, right: RawSigil): number {
-  return factorInstanceKey(left).localeCompare(factorInstanceKey(right));
+/** The only RawSigil -> inventory conversion. It runs immediately after parsing. */
+export function aggregateRawInventory(sigils: readonly RawSigil[]): FactorStock[] {
+  const grouped = new Map<string, FactorStock>();
+  for (const sigil of sigils) {
+    const groupKey = factorGroupKey(sigil);
+    const current = grouped.get(groupKey);
+    grouped.set(groupKey, {
+      groupKey,
+      primaryTraitHash: sigil.primaryTraitHash >>> 0,
+      secondaryTraitHash: sigil.secondaryTraitHash >>> 0,
+      sigilLevel: sigil.sigilLevel,
+      count: (current?.count ?? 0) + 1,
+      wornCount: (current?.wornCount ?? 0) + Number(!!sigil.wornByCharacterId)
+    });
+  }
+  return [...grouped.values()].sort((left, right) => left.groupKey.localeCompare(right.groupKey));
 }
 
-export function groupInventory(sigils: readonly RawSigil[]): FactorInventoryGroup[] {
-  const grouped = new Map<string, RawSigil[]>();
+export function expandStocks(
+  stocks: readonly FactorStock[],
+  reservations: readonly FactorGroupReservation[] = []
+): LogicalSigil[] {
+  const reserved = new Map(mergeReservations(reservations)
+    .map(item => [item.groupKey, item.count] as const));
+  return stocks.flatMap(stock => {
+    const available = Math.max(0, stock.count - (reserved.get(stock.groupKey) ?? 0));
+    return Array.from({ length: available }, (_, stockOrdinal): LogicalSigil => ({
+      groupKey: stock.groupKey,
+      stockOrdinal,
+      primaryTraitHash: stock.primaryTraitHash,
+      secondaryTraitHash: stock.secondaryTraitHash,
+      sigilLevel: stock.sigilLevel
+    }));
+  });
+}
+
+export function groupInventory(sigils: readonly LogicalSigil[]): FactorInventoryGroup[] {
+  const grouped = new Map<string, LogicalSigil[]>();
   for (const sigil of sigils) {
-    const key = factorGroupKey(sigil);
-    const members = grouped.get(key);
+    const members = grouped.get(sigil.groupKey);
     if (members) members.push(sigil);
-    else grouped.set(key, [sigil]);
+    else grouped.set(sigil.groupKey, [sigil]);
   }
   return [...grouped].map(([groupKey, unsorted]) => {
-    const members = [...unsorted].sort(comparePhysicalIdentity);
-    return {
-      groupKey,
-      representative: members[0]!,
-      members,
-      count: members.length
-    };
+    const members = [...unsorted].sort((left, right) =>
+      factorInstanceKey(left).localeCompare(factorInstanceKey(right)));
+    return { groupKey, representative: members[0]!, members, count: members.length };
   }).sort((left, right) => left.groupKey.localeCompare(right.groupKey));
 }
 
-export function countReservations(sigils: readonly RawSigil[]): FactorGroupReservation[] {
-  const counts = new Map<string, number>();
-  for (const sigil of sigils) {
-    const key = factorGroupKey(sigil);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return [...counts].map(([groupKey, count]) => ({ groupKey, count }))
-    .sort((left, right) => left.groupKey.localeCompare(right.groupKey));
+export function countReservations(sigils: readonly LogicalSigil[]): FactorGroupReservation[] {
+  return mergeReservations(sigils.map(sigil => ({ groupKey: sigil.groupKey, count: 1 })));
 }
 
 export function mergeReservations(
@@ -62,22 +85,11 @@ export function mergeReservations(
     .sort((left, right) => left.groupKey.localeCompare(right.groupKey));
 }
 
-/**
- * Expands logical reservations to deterministic physical entries for the solver.
- * Inventory positions never become part of the business reservation.
- */
 export function excludeReservations(
-  sigils: readonly RawSigil[],
+  stocks: readonly FactorStock[],
   reservations: readonly FactorGroupReservation[]
-): RawSigil[] {
-  const reserved = new Map(mergeReservations(reservations)
-    .map(item => [item.groupKey, item.count] as const));
-  const available: RawSigil[] = [];
-  for (const group of groupInventory(sigils)) {
-    const removeCount = Math.min(group.count, reserved.get(group.groupKey) ?? 0);
-    available.push(...group.members.slice(removeCount));
-  }
-  return available;
+): LogicalSigil[] {
+  return expandStocks(stocks, reservations);
 }
 
 export function reservationFingerprint(
@@ -90,10 +102,10 @@ export function reservationFingerprint(
 }
 
 export function reservationShortfall(
-  sigils: readonly RawSigil[],
+  stocks: readonly FactorStock[],
   reservations: readonly FactorGroupReservation[]
 ): number {
-  const totals = new Map(groupInventory(sigils).map(group => [group.groupKey, group.count] as const));
+  const totals = new Map(stocks.map(stock => [stock.groupKey, stock.count] as const));
   return mergeReservations(reservations).reduce(
     (missing, item) => missing + Math.max(0, item.count - (totals.get(item.groupKey) ?? 0)),
     0
@@ -103,7 +115,7 @@ export function reservationShortfall(
 export function chooseGroupMember(
   group: FactorInventoryGroup,
   preferredInstanceKey?: string
-): RawSigil {
+): LogicalSigil {
   if (preferredInstanceKey) {
     const preferred = group.members.find(item => factorInstanceKey(item) === preferredInstanceKey);
     if (preferred) return preferred;

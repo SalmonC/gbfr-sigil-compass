@@ -5,7 +5,7 @@ import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
-import type { EngineHello, ImportedInventory } from '../shared/contracts';
+import type { EngineHello, ParsedInventory } from '../shared/contracts';
 
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
@@ -134,8 +134,8 @@ export class EngineClient {
     return this.hello;
   }
 
-  importInventory(snapshotPath: string): Promise<ImportedInventory> {
-    return this.request<ImportedInventory>('inventory.import', { snapshotPath });
+  importInventory(snapshotPath: string): Promise<ParsedInventory> {
+    return this.request<ParsedInventory>('inventory.import', { snapshotPath });
   }
 
   stop(): void {

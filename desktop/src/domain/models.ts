@@ -1,4 +1,4 @@
-import type { RawSigil } from '../shared/contracts';
+import type { LogicalSigil } from '../shared/contracts';
 
 export interface CatalogTrait {
   readonly id: string;
@@ -41,7 +41,7 @@ export interface BuildProfile {
 export interface SolverRequest {
   readonly profile: BuildProfile;
   readonly catalog: CatalogData;
-  readonly inventory: readonly RawSigil[];
+  readonly inventory: readonly LogicalSigil[];
   readonly maxSlots: number;
   readonly resultLimit: number;
   readonly runSeed: number;
@@ -50,7 +50,7 @@ export interface SolverRequest {
 }
 
 export interface SolverResult {
-  readonly selected: readonly RawSigil[];
+  readonly selected: readonly LogicalSigil[];
   readonly signature: string;
   readonly manuallyAdjusted?: boolean;
   readonly forbiddenOccurrences?: number;

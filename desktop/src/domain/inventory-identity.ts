@@ -1,5 +1,7 @@
 import type { BuildProfile } from './models';
-import type { RawSigil } from '../shared/contracts';
+import type { FactorStock, LogicalSigil, RawSigil } from '../shared/contracts';
+
+type FactorShape = Pick<RawSigil, 'primaryTraitHash' | 'secondaryTraitHash' | 'sigilLevel'>;
 
 function hex(value: number): string {
   return (value >>> 0).toString(16).padStart(8, '0');
@@ -22,35 +24,32 @@ export function stableDigest(value: string): string {
  * Identifies one physical inventory entry in the imported save snapshot.
  * Trait hashes guard against a game slot being reused for a different sigil.
  */
-export function factorInstanceKey(sigil: RawSigil): string {
-  return `factor-v1:${sigil.gemUnitId}:${sigil.inventorySlotId}:${hex(sigil.primaryTraitHash)}:${hex(sigil.secondaryTraitHash)}`;
+export function factorInstanceKey(sigil: LogicalSigil): string {
+  return `logical-v1:${sigil.groupKey}:${sigil.stockOrdinal}`;
 }
 
 /** Groups interchangeable logical factor types without merging their instances. */
-export function factorTypeKey(sigil: RawSigil): string {
+export function factorTypeKey(sigil: FactorShape): string {
   return `${hex(sigil.primaryTraitHash)}:${hex(sigil.secondaryTraitHash)}`;
 }
 
 /** Identifies one interchangeable factor group: ordered traits plus sigil level. */
-export function factorFingerprint(sigil: RawSigil): string {
+export function factorFingerprint(sigil: FactorShape): string {
   return `${factorTypeKey(sigil)}:lv${sigil.sigilLevel}`;
 }
 
-export function inventoryFingerprint(sigils: readonly RawSigil[]): string {
-  const canonical = sigils.map(sigil => [
-    factorInstanceKey(sigil),
-    sigil.sigilHash >>> 0,
-    sigil.sigilLevel,
-    sigil.primaryLevel,
-    sigil.secondaryLevel,
-    sigil.flags,
-    sigil.wornByCharacterId ?? ''
+export function inventoryFingerprint(stocks: readonly FactorStock[]): string {
+  const canonical = stocks.map(stock => [
+    stock.groupKey,
+    stock.count,
+    stock.wornCount
   ].join(':')).sort().join('|');
-  return `inventory-v1:${sigils.length}:${stableDigest(canonical)}`;
+  const count = stocks.reduce((sum, stock) => sum + stock.count, 0);
+  return `inventory-v2:${count}:${stableDigest(canonical)}`;
 }
 
-export function instanceSetFingerprint(instanceKeys: readonly string[]): string {
-  return `instances-v1:${instanceKeys.length}:${stableDigest([...instanceKeys].sort().join('|'))}`;
+export function allocationSetFingerprint(keys: readonly string[]): string {
+  return `allocations-v1:${keys.length}:${stableDigest([...keys].sort().join('|'))}`;
 }
 
 export function profileComputeFingerprint(profile: BuildProfile): string {

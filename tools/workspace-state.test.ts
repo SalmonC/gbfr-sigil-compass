@@ -8,18 +8,18 @@ import {
 } from '../desktop/src/domain/workspace-store.ts';
 import { factorInstanceKey, factorFingerprint } from '../desktop/src/domain/inventory-identity.ts';
 import {
-  countReservations, excludeReservations, factorGroupKey, groupInventory,
+  aggregateRawInventory, countReservations, excludeReservations, expandStocks, factorGroupKey, groupInventory,
   reservationShortfall
 } from '../desktop/src/domain/inventory-groups.ts';
 import {
-  evaluateAdjustedResult, hasSamePhysicalSelection
+  evaluateAdjustedResult, hasSameLogicalSelection
 } from '../desktop/src/domain/result-adjustment.ts';
 import {
   dedupeEquivalentResults, resultEquivalenceKey, searchFactorGroupKey, targetTraitHashes
 } from '../desktop/src/domain/result-equivalence.ts';
 import { initialAnalysisRunState, reduceAnalysisState } from '../desktop/src/domain/analysis-state.ts';
 import type { BuildProfile, CatalogData, SolverAnalysis, SolverResult } from '../desktop/src/domain/models.ts';
-import type { ImportedInventory, RawSigil } from '../desktop/src/shared/contracts.ts';
+import type { ImportedInventory, LogicalSigil, RawSigil } from '../desktop/src/shared/contracts.ts';
 
 const catalog = JSON.parse(await readFile(new URL('../data/catalog/catalog.zh-CN.json', import.meta.url), 'utf8')) as CatalogData;
 const profile = JSON.parse(await readFile(new URL('../data/fixtures/screenshot-profile.json', import.meta.url), 'utf8')) as BuildProfile;
@@ -31,18 +31,19 @@ const sigil = (gemUnitId: number, slot: number, level = 15): RawSigil => ({
 });
 const inventory: ImportedInventory = {
   inventoryId: 'test', parserVersion: 'test', saveFormatVersion: 'test', diagnostics: [],
-  sigils: [sigil(30001, 1), sigil(30002, 2)]
+  stocks: aggregateRawInventory([sigil(30001, 1), sigil(30002, 2)])
 };
-const result = (selected: RawSigil[]): SolverResult => ({
+const logicalInventory = expandStocks(inventory.stocks);
+const result = (selected: LogicalSigil[]): SolverResult => ({
   selected, signature: selected.map(factorFingerprint).join('|'), mandatorySatisfied: true,
   primaryMatched: 0, primaryRequired: 0, exactPrimaryCoverage: [],
   basicSubstitutionUsage: [], optionalMatched: 0, optionalCoverage: [], avoidOccurrences: 0,
   usedSlots: selected.length, levelSum: selected.reduce((sum, item) => sum + item.sigilLevel, 0),
   tieA: 0, tieB: 0
 });
-const analysis: SolverAnalysis = { status: 'completed', results: [result([inventory.sigils[0]!])], candidateTypeCount: 1, exploredStateCount: 1 };
+const analysis: SolverAnalysis = { status: 'completed', results: [result([logicalInventory[0]!])], candidateTypeCount: 1, exploredStateCount: 1 };
 let workspace: WorkspaceState = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   activeProfileId: 'one',
   profiles: [
     { id: 'one', profile: { ...profile, name: '角色一' }, updatedAt: new Date(0).toISOString() },
@@ -74,7 +75,7 @@ assert.equal(retargeted.profiles[0]!.cache, undefined, 'changing compute inputs 
 
 const changedInventory: ImportedInventory = {
   ...inventory,
-  sigils: [inventory.sigils[0]!, sigil(30003, 3)]
+  stocks: aggregateRawInventory([sigil(30001, 1)])
 };
 const prunedInventory = pruneInvalidAnalysisCaches(workspace, changedInventory);
 assert.equal(
@@ -85,8 +86,8 @@ assert.equal(
 
 const unrelatedReservationContext = {
   ...contextOne,
-  excludedInstancesFingerprint: 'different',
-  excludedInstanceKeys: ['unrelated-physical-instance']
+  allocationFingerprint: 'different',
+  allocationKeys: ['unrelated-group-allocation']
 };
 assert.equal(
   getCacheStatus(workspace.profiles[0]!.cache, unrelatedReservationContext),
@@ -97,8 +98,8 @@ assert.equal(
 const selectedInstanceKey = factorInstanceKey(analysis.results[0]!.selected[0]!);
 const overlappingReservationContext = {
   ...contextOne,
-  excludedInstancesFingerprint: 'different-again',
-  excludedInstanceKeys: [selectedInstanceKey]
+  allocationFingerprint: 'different-again',
+  allocationKeys: [selectedInstanceKey]
 };
 assert.equal(
   getCacheStatus(workspace.profiles[0]!.cache, overlappingReservationContext),
@@ -109,48 +110,51 @@ assert.equal(
 workspace = confirmResult(
   workspace, 'one', analysis.results[0]!, contextOne.inventoryFingerprint, inventory);
 assert.deepEqual(workspace.profiles[0]!.confirmed?.groupReservations, [
-  { groupKey: factorGroupKey(inventory.sigils[0]!), count: 1 }
+  { groupKey: logicalInventory[0]!.groupKey, count: 1 }
 ]);
 assert.deepEqual(workspace.profiles[0]!.confirmed?.instanceKeys, []);
 const contextTwo = createAnalysisContext(workspace.profiles[1]!.profile, 'two', inventory, workspace);
-assert.deepEqual(contextTwo.availableInventory.map(factorInstanceKey), [factorInstanceKey(inventory.sigils[1]!)]);
+assert.deepEqual(contextTwo.availableInventory.map(factorInstanceKey), [factorInstanceKey(logicalInventory[0]!)]);
 assert.equal(findReservationConflicts(
-  workspace, 'two', result([inventory.sigils[0]!, inventory.sigils[1]!]), inventory).length, 1);
+  workspace, 'two', result(logicalInventory), inventory).length, 1);
 assert.throws(() => confirmResult(
   workspace,
   'two',
-  result([inventory.sigils[0]!, inventory.sigils[1]!]),
+  result(logicalInventory),
   contextTwo.inventoryFingerprint,
   inventory
 ));
 workspace = releaseConfirmedResult(workspace, 'one');
 assert.equal(findReservationConflicts(
-  workspace, 'two', result([inventory.sigils[0]!]), inventory).length, 0);
+  workspace, 'two', result([logicalInventory[0]!]), inventory).length, 0);
 
-const groupedInventory = groupInventory(inventory.sigils);
+const groupedInventory = groupInventory(logicalInventory);
 assert.equal(groupedInventory.length, 1);
 assert.equal(groupedInventory[0]!.count, 2);
-assert.deepEqual(countReservations(inventory.sigils), [
-  { groupKey: factorGroupKey(inventory.sigils[0]!), count: 2 }
+assert.deepEqual(countReservations(logicalInventory), [
+  { groupKey: logicalInventory[0]!.groupKey, count: 2 }
 ]);
-assert.equal(excludeReservations(inventory.sigils, [
-  { groupKey: factorGroupKey(inventory.sigils[0]!), count: 1 }
+assert.equal(excludeReservations(inventory.stocks, [
+  { groupKey: logicalInventory[0]!.groupKey, count: 1 }
 ]).length, 1);
-assert.equal(reservationShortfall(inventory.sigils, [
-  { groupKey: factorGroupKey(inventory.sigils[0]!), count: 3 }
+assert.equal(reservationShortfall(inventory.stocks, [
+  { groupKey: logicalInventory[0]!.groupKey, count: 3 }
 ]), 1);
-assert.equal(groupInventory([sigil(30004, 4, 11), sigil(30005, 5, 15)]).length, 2);
-const oneFactorInventory = { ...inventory, sigils: [inventory.sigils[0]!] };
+assert.equal(aggregateRawInventory([sigil(30004, 4, 11), sigil(30005, 5, 15)]).length, 2);
+const oneFactorInventory = {
+  ...inventory,
+  stocks: aggregateRawInventory([sigil(30001, 1)])
+};
 assert.throws(() => confirmResult(
   workspace,
   'two',
-  result([inventory.sigils[0]!, inventory.sigils[1]!]),
+  result(logicalInventory),
   'inventory',
   oneFactorInventory
 ), 'a request that exceeds inventory must fail even without another confirmed profile');
 
 let namingWorkspace: WorkspaceState = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   activeProfileId: 'name-one',
   profiles: [
     { id: 'name-one', profile: { ...profile, name: '同名方案' }, updatedAt: new Date(0).toISOString() },
@@ -159,24 +163,28 @@ let namingWorkspace: WorkspaceState = {
   ]
 };
 const namingSigils = [sigil(31001, 11), sigil(31002, 12), sigil(31003, 13)];
-const namingInventory: ImportedInventory = { ...inventory, sigils: namingSigils };
+const namingInventory: ImportedInventory = { ...inventory, stocks: aggregateRawInventory(namingSigils) };
+const namingLogical = expandStocks(namingInventory.stocks);
 namingWorkspace = confirmResult(
-  namingWorkspace, 'name-one', result([namingSigils[0]!]), 'inventory', namingInventory);
+  namingWorkspace, 'name-one', result([namingLogical[0]!]), 'inventory', namingInventory);
 namingWorkspace = confirmResult(
-  namingWorkspace, 'name-two', result([namingSigils[1]!]), 'inventory', namingInventory);
+  namingWorkspace, 'name-two', result([namingLogical[1]!]), 'inventory', namingInventory);
 namingWorkspace = confirmResult(
-  namingWorkspace, 'name-three', result([namingSigils[2]!]), 'inventory', namingInventory);
+  namingWorkspace, 'name-three', result([namingLogical[2]!]), 'inventory', namingInventory);
 assert.deepEqual(
   namingWorkspace.profiles.map(item => item.confirmed?.displayName),
   ['同名方案', '同名方案 -1', '同名方案 -2']
 );
 assert.equal(namingWorkspace.profiles[0]!.confirmed?.profileSnapshot?.name, '同名方案');
-assert.equal(namingWorkspace.profiles[0]!.confirmed?.result?.selected[0]?.gemUnitId, 31001);
+assert.equal(namingWorkspace.profiles[0]!.confirmed?.result?.selected[0]?.groupKey, namingLogical[0]!.groupKey);
 assert.equal(confirmedMissingFactorCount(
   namingWorkspace.profiles[0]!.confirmed!,
-  { ...namingInventory, sigils: [sigil(31999, 999)] }
+  { ...namingInventory, stocks: aggregateRawInventory([sigil(31999, 999)]) }
 ), 0, 'moving an interchangeable factor to another physical slot must not break confirmation');
-const reducedNamingInventory = { ...namingInventory, sigils: namingSigils.slice(0, 2) };
+const reducedNamingInventory = {
+  ...namingInventory,
+  stocks: aggregateRawInventory(namingSigils.slice(0, 2))
+};
 assert.equal(confirmedAllocationShortfall(
   namingWorkspace, 'name-one', reducedNamingInventory), 1);
 assert.equal(confirmedAllocationShortfall(
@@ -186,7 +194,7 @@ assert.equal(confirmedAllocationShortfall(
 assert.throws(() => confirmResult(
   namingWorkspace,
   'name-one',
-  result([namingSigils[0]!, namingSigils[1]!]),
+  result(namingLogical.slice(0, 2)),
   'inventory',
   namingInventory
 ), 'a replacement must not exceed total inventory after returning its own old allocation');
@@ -200,17 +208,16 @@ const positionedSigil = (
   primaryHash: number,
   secondaryHash: number,
   level = 15
-): RawSigil => ({
-  gemUnitId: id,
-  inventorySlotId: slot,
-  sigilHash: id,
+): LogicalSigil => ({
+  groupKey: factorGroupKey({
+    primaryTraitHash: primaryHash,
+    secondaryTraitHash: secondaryHash,
+    sigilLevel: level
+  }),
+  stockOrdinal: slot,
   sigilLevel: level,
   primaryTraitHash: primaryHash,
-  primaryLevel: level,
   secondaryTraitHash: secondaryHash,
-  secondaryLevel: level,
-  flags: 0,
-  wornByCharacterId: null
 });
 const manualProfile: BuildProfile = {
   ...profile,
@@ -245,9 +252,19 @@ assert.throws(() => confirmResult(
   'one',
   evaluateAdjustedResult(result([]), manualProfile, catalog, positionedOne.slice(1)),
   'inventory',
-  { ...inventory, sigils: positionedOne }
+  {
+    ...inventory,
+    stocks: positionedOne.map(item => ({
+      groupKey: item.groupKey,
+      primaryTraitHash: item.primaryTraitHash,
+      secondaryTraitHash: item.secondaryTraitHash,
+      sigilLevel: item.sigilLevel,
+      count: 1,
+      wornCount: 0
+    }))
+  }
 ));
-assert.equal(hasSamePhysicalSelection(positionedOne, [...positionedOne].reverse()), true);
+assert.equal(hasSameLogicalSelection(positionedOne, [...positionedOne].reverse()), true);
 
 const positionedTwo = [
   positionedSigil(40003, 23, traitHash(0), traitHash(2)),
@@ -292,20 +309,47 @@ memoryStorage.setItem('gbfr-factor-planner.workspace.v3', JSON.stringify({
     confirmed: {
       resultSignature: analysis.results[0]!.signature,
       inventoryFingerprint: 'legacy-inventory',
-      instanceKeys: [factorInstanceKey(inventory.sigils[0]!)],
+      instanceKeys: ['legacy-physical-instance'],
       result: analysis.results[0],
       confirmedAt: new Date(0).toISOString()
     }
   }]
 }));
 const migratedWorkspace = createWorkspace(catalog, profile);
-assert.equal(migratedWorkspace.schemaVersion, 4);
+assert.equal(migratedWorkspace.schemaVersion, 5);
 assert.equal(migratedWorkspace.profiles[0]!.cache, undefined);
 assert.deepEqual(migratedWorkspace.profiles[0]!.confirmed?.groupReservations, [
-  { groupKey: factorGroupKey(inventory.sigils[0]!), count: 1 }
+  { groupKey: logicalInventory[0]!.groupKey, count: 1 }
 ]);
-const legacyWithoutResult: WorkspaceState = {
+memoryStorage.clear();
+const preservedProfile = {
+  ...profile,
+  name: '升级后必须保留',
+  mandatory: [...profile.mandatory].reverse(),
+  optional: [...profile.optional].reverse(),
+  avoid: [...profile.avoid].reverse()
+};
+memoryStorage.setItem('gbfr-factor-planner.workspace.v4', JSON.stringify({
   schemaVersion: 4,
+  activeProfileId: 'keep-profile',
+  profiles: [{
+    id: 'keep-profile',
+    profile: preservedProfile,
+    updatedAt: new Date(0).toISOString(),
+    cache: workspace.profiles[0]?.cache,
+    confirmed: migratedWorkspace.profiles[0]?.confirmed
+  }]
+}));
+const migratedV4 = createWorkspace(catalog, profile);
+assert.equal(migratedV4.activeProfileId, 'keep-profile');
+assert.deepEqual(migratedV4.profiles[0]?.profile, preservedProfile);
+assert.equal(migratedV4.profiles[0]?.cache, undefined);
+assert.deepEqual(
+  migratedV4.profiles[0]?.confirmed?.groupReservations,
+  migratedWorkspace.profiles[0]?.confirmed?.groupReservations
+);
+const legacyWithoutResult: WorkspaceState = {
+  schemaVersion: 5,
   activeProfileId: 'legacy',
   profiles: [
     {
@@ -315,7 +359,7 @@ const legacyWithoutResult: WorkspaceState = {
       confirmed: {
         resultSignature: 'legacy',
         inventoryFingerprint: 'legacy',
-        instanceKeys: [factorInstanceKey(inventory.sigils[0]!)],
+        instanceKeys: ['legacy-physical-instance'],
         confirmedAt: new Date(0).toISOString()
       }
     },
@@ -323,8 +367,8 @@ const legacyWithoutResult: WorkspaceState = {
   ]
 };
 const resolvedLegacyContext = createAnalysisContext(profile, 'new', inventory, legacyWithoutResult);
-assert.equal(resolvedLegacyContext.unresolvedLegacyReservationProfiles.length, 0);
-assert.equal(resolvedLegacyContext.availableInventory.length, 1);
+assert.deepEqual(resolvedLegacyContext.unresolvedLegacyReservationProfiles, ['旧配装']);
+assert.equal(resolvedLegacyContext.availableInventory.length, 0);
 const mixedLegacyWorkspace: WorkspaceState = {
   ...legacyWithoutResult,
   profiles: [
@@ -336,10 +380,10 @@ const mixedLegacyWorkspace: WorkspaceState = {
         inventoryFingerprint: 'new',
         instanceKeys: [],
         groupReservations: [{
-          groupKey: factorGroupKey(inventory.sigils[0]!),
+          groupKey: logicalInventory[0]!.groupKey,
           count: 1
         }],
-        result: result([inventory.sigils[1]!]),
+        result: result([logicalInventory[1]!]),
         confirmedAt: new Date(0).toISOString()
       }
     }
@@ -348,10 +392,10 @@ const mixedLegacyWorkspace: WorkspaceState = {
 assert.equal(confirmedAllocationShortfall(
   mixedLegacyWorkspace, 'legacy', oneFactorInventory), 1);
 assert.equal(confirmedAllocationShortfall(
-  mixedLegacyWorkspace, 'new', oneFactorInventory), 1);
+  mixedLegacyWorkspace, 'new', oneFactorInventory), 0);
 const movedLegacyInventory = {
   ...inventory,
-  sigils: [sigil(32001, 101), sigil(32002, 102)]
+  stocks: aggregateRawInventory([sigil(32001, 101), sigil(32002, 102)])
 };
 const unresolvedLegacyContext = createAnalysisContext(
   profile, 'new', movedLegacyInventory, legacyWithoutResult);
@@ -360,7 +404,7 @@ assert.equal(unresolvedLegacyContext.availableInventory.length, 0);
 assert.throws(() => confirmResult(
   legacyWithoutResult,
   'new',
-  result([movedLegacyInventory.sigils[0]!]),
+  result([expandStocks(movedLegacyInventory.stocks)[0]!]),
   'inventory',
   movedLegacyInventory
 ));

@@ -4,6 +4,7 @@ import { performance } from 'node:perf_hooks';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { solveBuild } from '../desktop/src/domain/solver.ts';
+import { aggregateRawInventory, expandStocks } from '../desktop/src/domain/inventory-groups.ts';
 import type { BuildProfile, CatalogData } from '../desktop/src/domain/models.ts';
 import type { RawSigil } from '../desktop/src/shared/contracts.ts';
 
@@ -23,7 +24,7 @@ const parsed = JSON.parse(stdout) as {
     secondaryLevel: number; flags: number; wornByCharacterId: string | null;
   }>;
 };
-const inventory: RawSigil[] = parsed.sigils;
+const inventory = expandStocks(aggregateRawInventory(parsed.sigils as RawSigil[]));
 
 assert(profile.name === '欧羽尼高手-截图前16项', 'fixture name changed');
 assert(JSON.stringify(profile.mandatory) === JSON.stringify([

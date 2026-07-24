@@ -1,4 +1,4 @@
-import type { RawSigil } from '../shared/contracts';
+import type { LogicalSigil } from '../shared/contracts';
 import type { BuildProfile, CatalogData, SolverResult } from './models';
 
 function hex(value: number): string {
@@ -29,7 +29,7 @@ export function targetTraitHashes(profile: BuildProfile, catalog: CatalogData): 
  * representative. It is intentionally omitted from the final equivalence key.
  */
 export function searchFactorGroupKey(
-  sigil: RawSigil,
+  sigil: LogicalSigil,
   targetHashes: ReadonlySet<number>,
   avoidHashes: ReadonlySet<number>
 ): string {
@@ -42,7 +42,7 @@ export function searchFactorGroupKey(
 }
 
 function factorPositionRole(
-  sigil: RawSigil,
+  sigil: LogicalSigil,
   targetHashes: ReadonlySet<number>
 ): string {
   const primary = sigil.primaryTraitHash >>> 0;

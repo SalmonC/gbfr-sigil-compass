@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { solveBuild, solveBuildWithFallback } from '../desktop/src/domain/solver.ts';
 import { solveBuildMilp } from '../desktop/src/domain/solver-milp.ts';
+import { factorGroupKey } from '../desktop/src/domain/inventory-groups.ts';
 import type { BuildProfile, CatalogData, SolverRequest, SolverResult } from '../desktop/src/domain/models.ts';
-import type { RawSigil } from '../desktop/src/shared/contracts.ts';
+import type { LogicalSigil } from '../desktop/src/shared/contracts.ts';
 
 type OracleResult = Pick<SolverResult,
   'signature' | 'primaryMatched' | 'exactPrimaryCoverage' | 'basicSubstitutionUsage' |
@@ -15,10 +16,16 @@ const trait = (id: string, hash: number) => ({
   id, hash: hashText(hash), nameZh: id, nameEn: id, category: 'BasicStats',
   canPrimary: true, canSecondary: true, maxLevel: 15
 });
-const sigil = (id: number, primary: number, secondary: number, level = 15): RawSigil => ({
-  gemUnitId: id, inventorySlotId: id, sigilHash: id, sigilLevel: level,
-  primaryTraitHash: primary, primaryLevel: level, secondaryTraitHash: secondary,
-  secondaryLevel: level, flags: 0, wornByCharacterId: null
+const sigil = (id: number, primary: number, secondary: number, level = 15): LogicalSigil => ({
+  groupKey: factorGroupKey({
+    primaryTraitHash: primary,
+    secondaryTraitHash: secondary,
+    sigilLevel: level
+  }),
+  stockOrdinal: id,
+  sigilLevel: level,
+  primaryTraitHash: primary,
+  secondaryTraitHash: secondary
 });
 const baseProfile = (patch: Partial<BuildProfile>): BuildProfile => ({
   schemaVersion: 3, catalogVersion: 'oracle', name: 'oracle', mandatory: [], basicPrimary: [],
@@ -111,7 +118,7 @@ function bruteForce(request: SolverRequest): OracleResult[] {
   const relevant = new Set([...mandatory, ...effectiveOptional, ...primaryTargets,
     ...(allowSubstitution ? substitutions : [])]);
 
-  const grouped = new Map<string, RawSigil[]>();
+  const grouped = new Map<string, LogicalSigil[]>();
   for (const item of request.inventory) {
     const primary = item.primaryTraitHash >>> 0;
     const secondary = item.secondaryTraitHash >>> 0;
@@ -129,7 +136,8 @@ function bruteForce(request: SolverRequest): OracleResult[] {
     key,
     primary: instances[0]!.primaryTraitHash >>> 0,
     secondary: instances[0]!.secondaryTraitHash >>> 0,
-    instances: [...instances].sort((a, b) => b.sigilLevel - a.sigilLevel || a.gemUnitId - b.gemUnitId)
+    instances: [...instances].sort((a, b) =>
+      b.sigilLevel - a.sigilLevel || a.stockOrdinal - b.stockOrdinal)
   })).sort((a, b) => a.key.localeCompare(b.key));
 
   const requirements = (values: readonly number[]) => {
@@ -159,7 +167,7 @@ function bruteForce(request: SolverRequest): OracleResult[] {
     let tieA = 0;
     let tieB = 0;
     const signatureParts: string[] = [];
-    const selectedInstances: RawSigil[] = [];
+    const selectedInstances: LogicalSigil[] = [];
     for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
       const count = chosen[groupIndex]!;
       if (!count) continue;
@@ -272,7 +280,7 @@ function verify(request: SolverRequest, label: string): void {
 }
 
 const makeRequest = (
-  profile: Partial<BuildProfile>, inventory: RawSigil[],
+  profile: Partial<BuildProfile>, inventory: LogicalSigil[],
   options: { slots?: number; seed?: number; limit?: number; catalogSize?: number } = {}
 ): SolverRequest => ({
   profile: baseProfile(profile), catalog: catalogFor(options.catalogSize ?? 8), inventory,
@@ -363,7 +371,7 @@ assert.equal(identityResult.length, 2, 'A&B and B&A are different logical scheme
 assert.equal(identityResult.find(item => item.signature.startsWith('00000001:00000002'))?.selected[0]?.sigilLevel,
   15, 'same logical scheme must use its highest-level inventory instance');
 
-const wideInventory: RawSigil[] = [];
+const wideInventory: LogicalSigil[] = [];
 let wideId = 1;
 for (let primary = 1; primary <= 24; primary++) {
   for (let secondary = 1; secondary <= 24; secondary++) {

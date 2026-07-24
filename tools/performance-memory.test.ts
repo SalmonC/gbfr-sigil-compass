@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { solveBuild, solveBuildWithFallback } from '../desktop/src/domain/solver.ts';
+import { aggregateRawInventory, expandStocks } from '../desktop/src/domain/inventory-groups.ts';
 import type { BuildProfile, CatalogData, SolverAnalysis } from '../desktop/src/domain/models.ts';
 import type { RawSigil } from '../desktop/src/shared/contracts.ts';
 
@@ -24,7 +25,10 @@ const { stdout } = await promisify(execFile)('dotnet', [workerDll, '--parse', sa
   maxBuffer: 32 * 1024 * 1024,
   env: { ...process.env, DOTNET_ROLL_FORWARD: 'Major' }
 });
-const inventory = (JSON.parse(stdout) as { sigils: RawSigil[] }).sigils;
+const rawInventory = (JSON.parse(stdout) as { sigils: RawSigil[] }).sigils;
+const aggregationStarted = performance.now();
+const inventory = expandStocks(aggregateRawInventory(rawInventory));
+const aggregationMs = performance.now() - aggregationStarted;
 assert.equal(inventory.length, 401);
 
 function run(seed: number): SolverAnalysis {
@@ -57,6 +61,7 @@ const maxRss = Math.max(...samples.map(sample => sample.rss));
 const report = {
   iterations: samples.length,
   inventoryCount: inventory.length,
+  aggregationMs: Number(aggregationMs.toFixed(3)),
   exploredStateCount: last.exploredStateCount,
   p50Ms: Math.round(times[Math.floor(times.length * 0.5)]!),
   p95Ms: Math.round(times[Math.floor(times.length * 0.95)]!),
@@ -70,6 +75,7 @@ const report = {
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 
 assert.ok(report.p95Ms < 2_000, `p95 solve time exceeded 2 seconds: ${report.p95Ms} ms`);
+assert.ok(aggregationMs < 100, `inventory aggregation exceeded 100 ms: ${aggregationMs} ms`);
 assert.ok(heapGrowth < 8 * 1024 * 1024, `post-GC heap grew by ${report.heapGrowthMiB} MiB`);
 
 const traitIdByHash = new Map(catalog.traits.map(trait => [

@@ -1,16 +1,19 @@
 import type { BuildProfile, CatalogData, SolverAnalysis, SolverResult } from './models';
 import { loadProfiles, removeLegacyProfileStorage, validateProfile } from './profile-codec.ts';
 import {
-  factorInstanceKey, instanceSetFingerprint, inventoryFingerprint, profileComputeFingerprint
+  allocationSetFingerprint, inventoryFingerprint, profileComputeFingerprint
 } from './inventory-identity.ts';
 import {
-  countReservations, excludeReservations, groupInventory, mergeReservations,
+  aggregateRawInventory, countReservations, excludeReservations, factorGroupKey, mergeReservations,
   reservationFingerprint, reservationShortfall, type FactorGroupReservation
 } from './inventory-groups.ts';
-import type { ImportedInventory, RawSigil } from '../shared/contracts';
+import type { ImportedInventory, LogicalSigil } from '../shared/contracts';
 
-const STORAGE_KEY = 'gbfr-factor-planner.workspace.v4';
-const LEGACY_STORAGE_KEY = 'gbfr-factor-planner.workspace.v3';
+const STORAGE_KEY = 'gbfr-factor-planner.workspace.v5';
+const LEGACY_STORAGE_KEYS = [
+  'gbfr-factor-planner.workspace.v4',
+  'gbfr-factor-planner.workspace.v3'
+] as const;
 export const RANKING_VERSION = 'GBFR-RANK-4';
 
 export interface CachedAnalysis {
@@ -18,8 +21,8 @@ export interface CachedAnalysis {
   readonly requestKey: string;
   readonly profileFingerprint: string;
   readonly inventoryFingerprint: string;
-  readonly excludedInstancesFingerprint: string;
-  readonly excludedInstanceKeys: readonly string[];
+  readonly allocationFingerprint: string;
+  readonly allocationKeys: readonly string[];
   readonly runSeed: number;
   readonly computedAt: string;
   readonly analysis: SolverAnalysis;
@@ -48,7 +51,7 @@ export interface StoredProfile {
 }
 
 export interface WorkspaceState {
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 5;
   readonly activeProfileId: string;
   readonly profiles: readonly StoredProfile[];
 }
@@ -56,9 +59,9 @@ export interface WorkspaceState {
 export interface AnalysisContext {
   readonly profileFingerprint: string;
   readonly inventoryFingerprint: string;
-  readonly excludedInstancesFingerprint: string;
-  readonly excludedInstanceKeys: readonly string[];
-  readonly availableInventory: readonly RawSigil[];
+  readonly allocationFingerprint: string;
+  readonly allocationKeys: readonly string[];
+  readonly availableInventory: readonly LogicalSigil[];
   readonly unresolvedLegacyReservationProfiles: readonly string[];
   readonly requestKey: string;
 }
@@ -71,6 +74,11 @@ function newId(): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function inventoryStocks(inventory: ImportedInventory): ImportedInventory['stocks'] {
+  const legacy = inventory as ImportedInventory & { readonly sigils?: readonly import('../shared/contracts').RawSigil[] };
+  return inventory.stocks ?? aggregateRawInventory(legacy.sigils ?? []);
 }
 
 function validateStoredProfile(value: unknown, catalog: CatalogData): StoredProfile | null {
@@ -99,17 +107,20 @@ function validateCachedAnalysis(value: unknown): CachedAnalysis | undefined {
     || cache.rankingVersion !== RANKING_VERSION
     || typeof cache.requestKey !== 'string'
     || typeof cache.inventoryFingerprint !== 'string'
-    || typeof cache.excludedInstancesFingerprint !== 'string'
+    || typeof cache.allocationFingerprint !== 'string'
     || typeof cache.runSeed !== 'number'
     || typeof cache.computedAt !== 'string'
-    || !isStringArray(cache.excludedInstanceKeys, 12 * 100)
+    || !isStringArray(cache.allocationKeys, 12 * 100)
     || !cache.analysis || typeof cache.analysis !== 'object'
     || !Array.isArray(cache.analysis.results)
     || cache.analysis.results.length > 10
     || cache.analysis.results.some(result => !Array.isArray(result?.selected) || result.selected.length > 12)) {
     return undefined;
   }
-  const resultSignatures = new Set(cache.analysis.results.map(result => result.signature));
+  const normalizedResults = cache.analysis.results.map(result => normalizeSolverResult(result, false));
+  if (normalizedResults.some(result => !result)) return undefined;
+  const results = normalizedResults as SolverResult[];
+  const resultSignatures = new Set(results.map(result => result.signature));
   const manualResults: Record<string, SolverResult> = {};
   if (cache.manualResults !== undefined) {
     if (!cache.manualResults || typeof cache.manualResults !== 'object'
@@ -124,6 +135,7 @@ function validateCachedAnalysis(value: unknown): CachedAnalysis | undefined {
   }
   return {
     ...(cache as CachedAnalysis),
+    analysis: { ...cache.analysis, results },
     manualResults: Object.keys(manualResults).length ? manualResults : undefined
   };
 }
@@ -143,6 +155,10 @@ function validateConfirmedLoadout(value: unknown): ConfirmedLoadout | undefined 
   // information to migrate them without reopening the save file.
   const groupReservations = suppliedReservations
     ?? (result ? countReservations(result.selected) : undefined);
+  if (suppliedReservations && result) {
+    const fromResult = countReservations(result.selected);
+    if (JSON.stringify(fromResult) !== JSON.stringify(suppliedReservations)) return undefined;
+  }
   return { ...confirmed, groupReservations, result } as ConfirmedLoadout;
 }
 
@@ -180,16 +196,20 @@ function normalizeSolverResult(value: unknown, requireMandatory: boolean): Solve
     || typeof result.levelSum !== 'number'
     || typeof result.tieA !== 'number'
     || typeof result.tieB !== 'number') return undefined;
+  const selected = normalizeLogicalSelection(result.selected);
+  if (!selected) return undefined;
   if (typeof result.primaryMatched === 'number'
     && typeof result.primaryRequired === 'number'
     && Array.isArray(result.exactPrimaryCoverage)
-    && Array.isArray(result.basicSubstitutionUsage)) return result as unknown as SolverResult;
+    && Array.isArray(result.basicSubstitutionUsage)) {
+    return { ...(result as unknown as SolverResult), selected };
+  }
   if (typeof result.basicMatched !== 'number'
     || typeof result.basicRequired !== 'number'
     || !Array.isArray(result.exactBasicCoverage)
     || !Array.isArray(result.substitutionUsage)) return undefined;
   return {
-    selected: result.selected as SolverResult['selected'],
+    selected,
     signature: result.signature,
     mandatorySatisfied: result.mandatorySatisfied,
     primaryMatched: result.basicMatched,
@@ -210,8 +230,33 @@ function normalizeSolverResult(value: unknown, requireMandatory: boolean): Solve
   };
 }
 
+function normalizeLogicalSelection(value: unknown): LogicalSigil[] | undefined {
+  if (!Array.isArray(value) || value.length > 12) return undefined;
+  const ordinals = new Map<string, number>();
+  const selected: LogicalSigil[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return undefined;
+    const sigil = item as Record<string, unknown>;
+    if (!Number.isSafeInteger(sigil.primaryTraitHash)
+      || !Number.isSafeInteger(sigil.secondaryTraitHash)
+      || !Number.isSafeInteger(sigil.sigilLevel)) return undefined;
+    const shape = {
+      primaryTraitHash: Number(sigil.primaryTraitHash),
+      secondaryTraitHash: Number(sigil.secondaryTraitHash),
+      sigilLevel: Number(sigil.sigilLevel)
+    };
+    const canonicalGroupKey = factorGroupKey(shape);
+    if (typeof sigil.groupKey === 'string' && sigil.groupKey !== canonicalGroupKey) return undefined;
+    const groupKey = canonicalGroupKey;
+    const stockOrdinal = ordinals.get(groupKey) ?? 0;
+    ordinals.set(groupKey, stockOrdinal + 1);
+    selected.push({ groupKey, stockOrdinal, ...shape });
+  }
+  return selected;
+}
+
 export function createWorkspace(catalog: CatalogData, fallback: BuildProfile): WorkspaceState {
-  const loadStored = (storageKey: string, schemaVersion: 3 | 4): WorkspaceState | null => {
+  const loadStored = (storageKey: string, schemaVersion: 3 | 4 | 5): WorkspaceState | null => {
     try {
       const parsed: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
       if (!parsed || typeof parsed !== 'object') return null;
@@ -220,9 +265,9 @@ export function createWorkspace(catalog: CatalogData, fallback: BuildProfile): W
       const profiles = value.profiles.flatMap(item => {
         const validated = validateStoredProfile(item, catalog);
         if (!validated) return [];
-        // Solver results in a v3 cache use physical identities. Drop them during
-        // migration; named targets and confirmed group allocations are preserved.
-        if (schemaVersion === 3) {
+        // Old analysis/manual caches depend on physical save identities. Every
+        // BuildProfile is retained; confirmed group allocations remain valid.
+        if (schemaVersion < 5) {
           const { cache: _cache, ...withoutCache } = validated;
           return [withoutCache];
         }
@@ -232,25 +277,27 @@ export function createWorkspace(catalog: CatalogData, fallback: BuildProfile): W
       const activeProfileId = profiles.some(item => item.id === value.activeProfileId)
         ? value.activeProfileId!
         : profiles[0]!.id;
-      return { schemaVersion: 4, activeProfileId, profiles };
+      return { schemaVersion: 5, activeProfileId, profiles };
     } catch {
       return null;
     }
   };
-  const current = loadStored(STORAGE_KEY, 4);
+  const current = loadStored(STORAGE_KEY, 5);
   if (current) return current;
-  const legacy = loadStored(LEGACY_STORAGE_KEY, 3);
-  if (legacy) return legacy;
+  for (const [index, storageKey] of LEGACY_STORAGE_KEYS.entries()) {
+    const legacy = loadStored(storageKey, index === 0 ? 4 : 3);
+    if (legacy) return legacy;
+  }
 
   const migrated = loadProfiles(catalog);
   const source = migrated.length ? migrated : [fallback];
   const profiles = source.map(profile => ({ id: newId(), profile, updatedAt: nowIso() }));
-  return { schemaVersion: 4, activeProfileId: profiles[0]!.id, profiles };
+  return { schemaVersion: 5, activeProfileId: profiles[0]!.id, profiles };
 }
 
 export function storeWorkspace(workspace: WorkspaceState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
-  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  for (const key of LEGACY_STORAGE_KEYS) localStorage.removeItem(key);
   removeLegacyProfileStorage();
 }
 
@@ -316,8 +363,6 @@ function resolveReservationState(
   readonly unresolvedProfileIds: readonly string[];
   readonly unresolvedProfileNames: readonly string[];
 } {
-  const inventoryByInstance = new Map(inventory.sigils.map(sigil =>
-    [factorInstanceKey(sigil), sigil] as const));
   const reservations: FactorGroupReservation[] = [];
   const unresolvedProfileIds: string[] = [];
   const unresolvedProfileNames: string[] = [];
@@ -329,16 +374,8 @@ function resolveReservationState(
       reservations.push(...confirmed.groupReservations);
       continue;
     }
-    const resolved = confirmed.instanceKeys.flatMap(key => {
-      const sigil = inventoryByInstance.get(key);
-      return sigil ? [sigil] : [];
-    });
-    if (resolved.length !== confirmed.instanceKeys.length) {
-      unresolvedProfileIds.push(record.id);
-      unresolvedProfileNames.push(confirmed.displayName ?? record.profile.name);
-      continue;
-    }
-    reservations.push(...countReservations(resolved));
+    unresolvedProfileIds.push(record.id);
+    unresolvedProfileNames.push(confirmed.displayName ?? record.profile.name);
   }
   return {
     reservations: mergeReservations(reservations),
@@ -359,31 +396,31 @@ export function createAnalysisContext(
   const groupReservations = reservationState.reservations;
   const availableInventory = reservationState.unresolvedProfileIds.length
     ? []
-    : excludeReservations(inventory.sigils, groupReservations);
-  const excludedInstanceKeys = [
+    : excludeReservations(inventoryStocks(inventory), groupReservations);
+  const allocationKeys = [
     ...groupReservations.map(item => `${item.groupKey}=${item.count}`),
     ...reservationState.unresolvedProfileIds.map(id => `unresolved-legacy:${id}`)
   ].sort();
   const profileFingerprint = profileComputeFingerprint(profile);
-  const snapshotFingerprint = knownInventoryFingerprint ?? inventoryFingerprint(inventory.sigils);
-  const excludedInstancesFingerprint = groupReservations.length && legacyInstanceKeys.length === 0
+  const snapshotFingerprint = knownInventoryFingerprint ?? inventoryFingerprint(inventoryStocks(inventory));
+  const allocationFingerprint = groupReservations.length && legacyInstanceKeys.length === 0
     ? reservationFingerprint(groupReservations)
-    : instanceSetFingerprint(excludedInstanceKeys);
+    : allocationSetFingerprint(allocationKeys);
   return {
     profileFingerprint,
     inventoryFingerprint: snapshotFingerprint,
-    excludedInstancesFingerprint,
-    excludedInstanceKeys,
+    allocationFingerprint,
+    allocationKeys,
     availableInventory,
     unresolvedLegacyReservationProfiles: reservationState.unresolvedProfileNames,
-    requestKey: `${RANKING_VERSION}:${profileFingerprint}:${snapshotFingerprint}:${excludedInstancesFingerprint}`
+    requestKey: `${RANKING_VERSION}:${profileFingerprint}:${snapshotFingerprint}:${allocationFingerprint}`
   };
 }
 
 export function pruneInvalidAnalysisCaches(
   workspace: WorkspaceState,
   inventory: ImportedInventory,
-  knownInventoryFingerprint = inventoryFingerprint(inventory.sigils)
+  knownInventoryFingerprint = inventoryFingerprint(inventoryStocks(inventory))
 ): WorkspaceState {
   let changed = false;
   const profiles = workspace.profiles.map(record => {
@@ -403,7 +440,7 @@ export function getCacheStatus(cache: CachedAnalysis | undefined, context: Analy
   if (cache.rankingVersion !== RANKING_VERSION) return 'profile-changed';
   if (cache.profileFingerprint !== context.profileFingerprint) return 'profile-changed';
   if (cache.inventoryFingerprint !== context.inventoryFingerprint) return 'inventory-changed';
-  if (cache.excludedInstancesFingerprint !== context.excludedInstancesFingerprint) {
+  if (cache.allocationFingerprint !== context.allocationFingerprint) {
     // Group reservations change candidate multiplicities. Reusing a result based on
     // physical instance overlap would be unsound because identical instances are interchangeable.
     return 'allocations-changed';
@@ -423,8 +460,8 @@ export function cacheAnalysis(
     requestKey: context.requestKey,
     profileFingerprint: context.profileFingerprint,
     inventoryFingerprint: context.inventoryFingerprint,
-    excludedInstancesFingerprint: context.excludedInstancesFingerprint,
-    excludedInstanceKeys: context.excludedInstanceKeys,
+    allocationFingerprint: context.allocationFingerprint,
+    allocationKeys: context.allocationKeys,
     runSeed,
     computedAt: nowIso(),
     analysis
@@ -479,7 +516,7 @@ export function findReservationConflicts(
   }
   const reservedByOthers = reservationState.reservations;
   const shortage = reservationShortfall(
-    inventory.sigils,
+    inventoryStocks(inventory),
     mergeReservations([...reservedByOthers, ...requested])
   );
   if (shortage <= 0) return [];
@@ -546,10 +583,9 @@ export function confirmedMissingFactorCount(
   inventory: ImportedInventory
 ): number {
   if (confirmed.groupReservations) {
-    return reservationShortfall(inventory.sigils, confirmed.groupReservations);
+    return reservationShortfall(inventoryStocks(inventory), confirmed.groupReservations);
   }
-  const current = new Set(inventory.sigils.map(factorInstanceKey));
-  return confirmed.instanceKeys.filter(key => !current.has(key)).length;
+  return confirmed.instanceKeys.length;
 }
 
 export function confirmedAllocationShortfall(
@@ -561,18 +597,9 @@ export function confirmedAllocationShortfall(
   if (!record?.confirmed) return 0;
   let ownReservations = record.confirmed.groupReservations;
   if (!ownReservations) {
-    const inventoryByInstance = new Map(inventory.sigils.map(sigil =>
-      [factorInstanceKey(sigil), sigil] as const));
-    const resolved = record.confirmed.instanceKeys.flatMap(key => {
-      const sigil = inventoryByInstance.get(key);
-      return sigil ? [sigil] : [];
-    });
-    const physicallyMissing = record.confirmed.instanceKeys.length - resolved.length;
-    if (physicallyMissing > 0) return physicallyMissing;
-    ownReservations = countReservations(resolved);
+    return record.confirmed.instanceKeys.length;
   }
-  const totals = new Map(groupInventory(inventory.sigils)
-    .map(group => [group.groupKey, group.count] as const));
+  const totals = new Map(inventoryStocks(inventory).map(stock => [stock.groupKey, stock.count] as const));
   const allReservations = resolveReservationState(workspace, inventory).reservations;
   const overbooked = new Map(allReservations.flatMap(item => {
     const shortage = item.count - (totals.get(item.groupKey) ?? 0);
@@ -589,13 +616,4 @@ export function releaseConfirmedResult(workspace: WorkspaceState, profileId: str
     const { confirmed: _confirmed, ...remaining } = current;
     return remaining;
   });
-}
-
-export function cacheUsesAny(cache: CachedAnalysis | undefined, instanceKeys: ReadonlySet<string>): boolean {
-  if (!cache) return false;
-  const results = [
-    ...cache.analysis.results,
-    ...Object.values(cache.manualResults ?? {})
-  ];
-  return results.some(result => result.selected.some(sigil => instanceKeys.has(factorInstanceKey(sigil))));
 }

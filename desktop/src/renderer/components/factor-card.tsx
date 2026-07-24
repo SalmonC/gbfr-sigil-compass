@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { CatalogTrait } from '../../domain/models';
-import type { RawSigil } from '../../shared/contracts';
+import type { LogicalSigil } from '../../shared/contracts';
 import { TraitIcon, TraitName } from './trait';
 
 export interface FactorCardTag {
@@ -51,7 +51,7 @@ export function FactorCard({
   sigil, primary, secondary, label, mode = 'result', primaryTags, secondaryTags,
   footerStart, footerEnd, hasIssue = false, headerActions, primarySelection, secondarySelection
 }: {
-  sigil: RawSigil;
+  sigil: LogicalSigil;
   primary: CatalogTrait | undefined;
   secondary: CatalogTrait | undefined;
   label: string;
