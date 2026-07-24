@@ -3,9 +3,14 @@ import { loadProfiles, removeLegacyProfileStorage, validateProfile } from './pro
 import {
   factorInstanceKey, instanceSetFingerprint, inventoryFingerprint, profileComputeFingerprint
 } from './inventory-identity.ts';
+import {
+  countReservations, excludeReservations, groupInventory, mergeReservations,
+  reservationFingerprint, reservationShortfall, type FactorGroupReservation
+} from './inventory-groups.ts';
 import type { ImportedInventory, RawSigil } from '../shared/contracts';
 
-const STORAGE_KEY = 'gbfr-factor-planner.workspace.v3';
+const STORAGE_KEY = 'gbfr-factor-planner.workspace.v4';
+const LEGACY_STORAGE_KEY = 'gbfr-factor-planner.workspace.v3';
 export const RANKING_VERSION = 'GBFR-RANK-4';
 
 export interface CachedAnalysis {
@@ -27,7 +32,9 @@ export interface ConfirmedLoadout {
   readonly profileSnapshot?: BuildProfile;
   readonly resultSignature: string;
   readonly inventoryFingerprint: string;
+  /** Legacy v0.2.3 physical reservations. New records use groupReservations. */
   readonly instanceKeys: readonly string[];
+  readonly groupReservations?: readonly FactorGroupReservation[];
   readonly result?: SolverResult;
   readonly confirmedAt: string;
 }
@@ -41,7 +48,7 @@ export interface StoredProfile {
 }
 
 export interface WorkspaceState {
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly activeProfileId: string;
   readonly profiles: readonly StoredProfile[];
 }
@@ -52,6 +59,7 @@ export interface AnalysisContext {
   readonly excludedInstancesFingerprint: string;
   readonly excludedInstanceKeys: readonly string[];
   readonly availableInventory: readonly RawSigil[];
+  readonly unresolvedLegacyReservationProfiles: readonly string[];
   readonly requestKey: string;
 }
 
@@ -129,7 +137,29 @@ function validateConfirmedLoadout(value: unknown): ConfirmedLoadout | undefined 
     || !isStringArray(confirmed.instanceKeys, 12)) return undefined;
   const result = normalizeConfirmedResult(confirmed.result);
   if (confirmed.result && !result) return undefined;
-  return { ...confirmed, result } as ConfirmedLoadout;
+  const suppliedReservations = validateGroupReservations(confirmed.groupReservations);
+  if (confirmed.groupReservations !== undefined && !suppliedReservations) return undefined;
+  // v3 confirmations stored physical keys. A saved result contains enough
+  // information to migrate them without reopening the save file.
+  const groupReservations = suppliedReservations
+    ?? (result ? countReservations(result.selected) : undefined);
+  return { ...confirmed, groupReservations, result } as ConfirmedLoadout;
+}
+
+function validateGroupReservations(value: unknown): FactorGroupReservation[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 12) return undefined;
+  const reservations: FactorGroupReservation[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return undefined;
+    const record = item as Partial<FactorGroupReservation>;
+    if (typeof record.groupKey !== 'string' || record.groupKey.length > 160
+      || !Number.isInteger(record.count) || (record.count ?? 0) < 1 || (record.count ?? 0) > 12) {
+      return undefined;
+    }
+    reservations.push({ groupKey: record.groupKey, count: record.count! });
+  }
+  return mergeReservations(reservations);
 }
 
 function normalizeConfirmedResult(value: unknown): SolverResult | undefined {
@@ -181,35 +211,46 @@ function normalizeSolverResult(value: unknown, requireMandatory: boolean): Solve
 }
 
 export function createWorkspace(catalog: CatalogData, fallback: BuildProfile): WorkspaceState {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
-    if (parsed && typeof parsed === 'object') {
-      const value = parsed as Partial<WorkspaceState>;
-      if (value.schemaVersion === 3 && Array.isArray(value.profiles)) {
-        const profiles = value.profiles.flatMap(item => {
-          const validated = validateStoredProfile(item, catalog);
-          return validated ? [validated] : [];
-        });
-        if (profiles.length) {
-          const activeProfileId = profiles.some(item => item.id === value.activeProfileId)
-            ? value.activeProfileId!
-            : profiles[0]!.id;
-          return { schemaVersion: 3, activeProfileId, profiles };
+  const loadStored = (storageKey: string, schemaVersion: 3 | 4): WorkspaceState | null => {
+    try {
+      const parsed: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
+      if (!parsed || typeof parsed !== 'object') return null;
+      const value = parsed as { schemaVersion?: number; activeProfileId?: string; profiles?: unknown[] };
+      if (value.schemaVersion !== schemaVersion || !Array.isArray(value.profiles)) return null;
+      const profiles = value.profiles.flatMap(item => {
+        const validated = validateStoredProfile(item, catalog);
+        if (!validated) return [];
+        // Solver results in a v3 cache use physical identities. Drop them during
+        // migration; named targets and confirmed group allocations are preserved.
+        if (schemaVersion === 3) {
+          const { cache: _cache, ...withoutCache } = validated;
+          return [withoutCache];
         }
-      }
+        return [validated];
+      });
+      if (!profiles.length) return null;
+      const activeProfileId = profiles.some(item => item.id === value.activeProfileId)
+        ? value.activeProfileId!
+        : profiles[0]!.id;
+      return { schemaVersion: 4, activeProfileId, profiles };
+    } catch {
+      return null;
     }
-  } catch {
-    // Fall through to the v2 migration or bundled fixture.
-  }
+  };
+  const current = loadStored(STORAGE_KEY, 4);
+  if (current) return current;
+  const legacy = loadStored(LEGACY_STORAGE_KEY, 3);
+  if (legacy) return legacy;
 
   const migrated = loadProfiles(catalog);
   const source = migrated.length ? migrated : [fallback];
   const profiles = source.map(profile => ({ id: newId(), profile, updatedAt: nowIso() }));
-  return { schemaVersion: 3, activeProfileId: profiles[0]!.id, profiles };
+  return { schemaVersion: 4, activeProfileId: profiles[0]!.id, profiles };
 }
 
 export function storeWorkspace(workspace: WorkspaceState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
   removeLegacyProfileStorage();
 }
 
@@ -250,7 +291,60 @@ export function deleteStoredProfile(workspace: WorkspaceState, profileId: string
 }
 
 export function reservedInstanceKeys(workspace: WorkspaceState, exceptProfileId: string): string[] {
-  return workspace.profiles.flatMap(item => item.id === exceptProfileId ? [] : (item.confirmed?.instanceKeys ?? []));
+  return workspace.profiles.flatMap(item =>
+    item.id === exceptProfileId || item.confirmed?.groupReservations
+      ? []
+      : (item.confirmed?.instanceKeys ?? []));
+}
+
+export function reservedGroupCounts(
+  workspace: WorkspaceState,
+  exceptProfileId?: string
+): FactorGroupReservation[] {
+  return mergeReservations(workspace.profiles.flatMap(item =>
+    exceptProfileId !== undefined && item.id === exceptProfileId
+      ? []
+      : (item.confirmed?.groupReservations ?? [])));
+}
+
+function resolveReservationState(
+  workspace: WorkspaceState,
+  inventory: ImportedInventory,
+  exceptProfileId?: string
+): {
+  readonly reservations: readonly FactorGroupReservation[];
+  readonly unresolvedProfileIds: readonly string[];
+  readonly unresolvedProfileNames: readonly string[];
+} {
+  const inventoryByInstance = new Map(inventory.sigils.map(sigil =>
+    [factorInstanceKey(sigil), sigil] as const));
+  const reservations: FactorGroupReservation[] = [];
+  const unresolvedProfileIds: string[] = [];
+  const unresolvedProfileNames: string[] = [];
+  for (const record of workspace.profiles) {
+    if (exceptProfileId !== undefined && record.id === exceptProfileId) continue;
+    const confirmed = record.confirmed;
+    if (!confirmed) continue;
+    if (confirmed.groupReservations) {
+      reservations.push(...confirmed.groupReservations);
+      continue;
+    }
+    const resolved = confirmed.instanceKeys.flatMap(key => {
+      const sigil = inventoryByInstance.get(key);
+      return sigil ? [sigil] : [];
+    });
+    if (resolved.length !== confirmed.instanceKeys.length) {
+      unresolvedProfileIds.push(record.id);
+      unresolvedProfileNames.push(confirmed.displayName ?? record.profile.name);
+      continue;
+    }
+    reservations.push(...countReservations(resolved));
+  }
+  return {
+    reservations: mergeReservations(reservations),
+    unresolvedProfileIds,
+    unresolvedProfileNames
+  };
 }
 
 export function createAnalysisContext(
@@ -260,18 +354,28 @@ export function createAnalysisContext(
   workspace: WorkspaceState,
   knownInventoryFingerprint?: string
 ): AnalysisContext {
-  const excludedInstanceKeys = reservedInstanceKeys(workspace, profileId).sort();
-  const excluded = new Set(excludedInstanceKeys);
-  const availableInventory = inventory.sigils.filter(sigil => !excluded.has(factorInstanceKey(sigil)));
+  const legacyInstanceKeys = reservedInstanceKeys(workspace, profileId).sort();
+  const reservationState = resolveReservationState(workspace, inventory, profileId);
+  const groupReservations = reservationState.reservations;
+  const availableInventory = reservationState.unresolvedProfileIds.length
+    ? []
+    : excludeReservations(inventory.sigils, groupReservations);
+  const excludedInstanceKeys = [
+    ...groupReservations.map(item => `${item.groupKey}=${item.count}`),
+    ...reservationState.unresolvedProfileIds.map(id => `unresolved-legacy:${id}`)
+  ].sort();
   const profileFingerprint = profileComputeFingerprint(profile);
   const snapshotFingerprint = knownInventoryFingerprint ?? inventoryFingerprint(inventory.sigils);
-  const excludedInstancesFingerprint = instanceSetFingerprint(excludedInstanceKeys);
+  const excludedInstancesFingerprint = groupReservations.length && legacyInstanceKeys.length === 0
+    ? reservationFingerprint(groupReservations)
+    : instanceSetFingerprint(excludedInstanceKeys);
   return {
     profileFingerprint,
     inventoryFingerprint: snapshotFingerprint,
     excludedInstancesFingerprint,
     excludedInstanceKeys,
     availableInventory,
+    unresolvedLegacyReservationProfiles: reservationState.unresolvedProfileNames,
     requestKey: `${RANKING_VERSION}:${profileFingerprint}:${snapshotFingerprint}:${excludedInstancesFingerprint}`
   };
 }
@@ -300,17 +404,9 @@ export function getCacheStatus(cache: CachedAnalysis | undefined, context: Analy
   if (cache.profileFingerprint !== context.profileFingerprint) return 'profile-changed';
   if (cache.inventoryFingerprint !== context.inventoryFingerprint) return 'inventory-changed';
   if (cache.excludedInstancesFingerprint !== context.excludedInstancesFingerprint) {
-    const cachedExcluded = new Set(Array.isArray(cache.excludedInstanceKeys) ? cache.excludedInstanceKeys : []);
-    const currentExcluded = new Set(context.excludedInstanceKeys);
-    const releasedSinceRun = [...cachedExcluded].some(key => !currentExcluded.has(key));
-    if (releasedSinceRun) return 'allocations-changed';
-
-    // Confirming another loadout only removes candidates. If none of the cached top
-    // results uses the newly reserved physical instance, their order is unchanged.
-    // Releasing a loadout is different: a newly available candidate may outrank the
-    // cache, so that case remains stale until the user explicitly recalculates.
-    const newlyReserved = new Set([...currentExcluded].filter(key => !cachedExcluded.has(key)));
-    if (cacheUsesAny(cache, newlyReserved)) return 'allocations-changed';
+    // Group reservations change candidate multiplicities. Reusing a result based on
+    // physical instance overlap would be unsound because identical instances are interchangeable.
+    return 'allocations-changed';
   }
   return 'current';
 }
@@ -363,33 +459,59 @@ export function storeManualResult(
 export interface ReservationConflict {
   readonly profileId: string;
   readonly profileName: string;
-  readonly instanceKeys: readonly string[];
+  readonly shortage: number;
 }
 
 export function findReservationConflicts(
   workspace: WorkspaceState,
   profileId: string,
-  result: SolverResult
+  result: SolverResult,
+  inventory: ImportedInventory
 ): ReservationConflict[] {
-  const requested = new Set(result.selected.map(factorInstanceKey));
-  return workspace.profiles.flatMap(item => {
-    if (item.id === profileId || !item.confirmed) return [];
-    const overlap = item.confirmed.instanceKeys.filter(key => requested.has(key));
-    return overlap.length ? [{ profileId: item.id, profileName: item.profile.name, instanceKeys: overlap }] : [];
-  });
+  const requested = countReservations(result.selected);
+  const reservationState = resolveReservationState(workspace, inventory, profileId);
+  if (reservationState.unresolvedProfileIds.length) {
+    return reservationState.unresolvedProfileIds.map((id, index) => ({
+      profileId: id,
+      profileName: reservationState.unresolvedProfileNames[index] ?? '旧版已确认配装',
+      shortage: 1
+    }));
+  }
+  const reservedByOthers = reservationState.reservations;
+  const shortage = reservationShortfall(
+    inventory.sigils,
+    mergeReservations([...reservedByOthers, ...requested])
+  );
+  if (shortage <= 0) return [];
+  const requestedKeys = new Set(requested.map(item => item.groupKey));
+  const related = workspace.profiles.flatMap(item =>
+    item.id === profileId || !item.confirmed
+      || !(item.confirmed.groupReservations ?? []).some(allocation =>
+        requestedKeys.has(allocation.groupKey))
+      ? []
+      : [{ profileId: item.id, profileName: item.profile.name, shortage }]);
+  return related.length
+    ? related
+    : [{ profileId: '', profileName: '', shortage }];
 }
 
 export function confirmResult(
   workspace: WorkspaceState,
   profileId: string,
   result: SolverResult,
-  currentInventoryFingerprint: string
+  currentInventoryFingerprint: string,
+  inventory: ImportedInventory
 ): WorkspaceState {
   if (!result.mandatorySatisfied) throw new Error('必须满足的技能没有全部带上，不能确认这套配装。');
   if ((result.forbiddenOccurrences ?? 0) > 0) throw new Error('这套配装带有不能出现的技能，不能确认。');
   if (result.selected.length < 1 || result.selected.length > 12) throw new Error('配装使用的因子数量不正确。');
-  const conflicts = findReservationConflicts(workspace, profileId, result);
-  if (conflicts.length) throw new Error(`这些因子已用于“${conflicts.map(item => item.profileName).join('、')}”。请先取消旧配装。`);
+  const conflicts = findReservationConflicts(workspace, profileId, result, inventory);
+  if (conflicts.length) {
+    const names = [...new Set(conflicts.map(item => item.profileName).filter(Boolean))];
+    throw new Error(names.length
+      ? `可用数量不足，相关占用来自“${names.join('、')}”。请先取消旧配装。`
+      : '当前库存数量不足，不能确认这套配装。');
+  }
   const sourceRecord = workspace.profiles.find(item => item.id === profileId);
   if (!sourceRecord) throw new Error('找不到当前目标方案。');
   const existingName = sourceRecord.confirmed?.displayName;
@@ -405,11 +527,61 @@ export function confirmResult(
     profileSnapshot: sourceRecord.profile,
     resultSignature: result.signature,
     inventoryFingerprint: currentInventoryFingerprint,
-    instanceKeys: result.selected.map(factorInstanceKey).sort(),
+    instanceKeys: [],
+    groupReservations: countReservations(result.selected),
     result,
     confirmedAt: nowIso()
   };
   return replaceStoredProfile(workspace, profileId, current => ({ ...current, confirmed }));
+}
+
+export function confirmedFactorCount(confirmed: ConfirmedLoadout): number {
+  return confirmed.groupReservations
+    ? confirmed.groupReservations.reduce((sum, item) => sum + item.count, 0)
+    : confirmed.instanceKeys.length;
+}
+
+export function confirmedMissingFactorCount(
+  confirmed: ConfirmedLoadout,
+  inventory: ImportedInventory
+): number {
+  if (confirmed.groupReservations) {
+    return reservationShortfall(inventory.sigils, confirmed.groupReservations);
+  }
+  const current = new Set(inventory.sigils.map(factorInstanceKey));
+  return confirmed.instanceKeys.filter(key => !current.has(key)).length;
+}
+
+export function confirmedAllocationShortfall(
+  workspace: WorkspaceState,
+  profileId: string,
+  inventory: ImportedInventory
+): number {
+  const record = workspace.profiles.find(item => item.id === profileId);
+  if (!record?.confirmed) return 0;
+  let ownReservations = record.confirmed.groupReservations;
+  if (!ownReservations) {
+    const inventoryByInstance = new Map(inventory.sigils.map(sigil =>
+      [factorInstanceKey(sigil), sigil] as const));
+    const resolved = record.confirmed.instanceKeys.flatMap(key => {
+      const sigil = inventoryByInstance.get(key);
+      return sigil ? [sigil] : [];
+    });
+    const physicallyMissing = record.confirmed.instanceKeys.length - resolved.length;
+    if (physicallyMissing > 0) return physicallyMissing;
+    ownReservations = countReservations(resolved);
+  }
+  const totals = new Map(groupInventory(inventory.sigils)
+    .map(group => [group.groupKey, group.count] as const));
+  const allReservations = resolveReservationState(workspace, inventory).reservations;
+  const overbooked = new Map(allReservations.flatMap(item => {
+    const shortage = item.count - (totals.get(item.groupKey) ?? 0);
+    return shortage > 0 ? [[item.groupKey, shortage] as const] : [];
+  }));
+  return ownReservations.reduce(
+    (sum, item) => sum + Math.min(item.count, overbooked.get(item.groupKey) ?? 0),
+    0
+  );
 }
 
 export function releaseConfirmedResult(workspace: WorkspaceState, profileId: string): WorkspaceState {

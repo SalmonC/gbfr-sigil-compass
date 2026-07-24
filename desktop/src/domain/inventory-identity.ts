@@ -31,7 +31,7 @@ export function factorTypeKey(sigil: RawSigil): string {
   return `${hex(sigil.primaryTraitHash)}:${hex(sigil.secondaryTraitHash)}`;
 }
 
-/** Used for display and diagnostics, not as the physical reservation identity. */
+/** Identifies one interchangeable factor group: ordered traits plus sigil level. */
 export function factorFingerprint(sigil: RawSigil): string {
   return `${factorTypeKey(sigil)}:lv${sigil.sigilLevel}`;
 }

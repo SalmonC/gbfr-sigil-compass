@@ -38,5 +38,10 @@ assert.match(renderer, /storeManualResult/);
 assert.doesNotMatch(renderer, /<span>等级合计<\/span>/);
 assert.match(styles, /\.factor-trait\.non-target/);
 assert.match(styles, /\.factor-picker-dialog/);
+assert.match(renderer, /groupInventory\(candidates\)/);
+assert.match(renderer, /可用 \$\{group\.count\}/);
+assert.doesNotMatch(renderer, /inventorySlotId/);
+assert.doesNotMatch(renderer, /库存位置/);
+assert.match(renderer, /basic: 0,[\s\S]*attack: 1,[\s\S]*defense: 2,[\s\S]*support: 3,[\s\S]*special: 3,[\s\S]*character: 4/);
 
 process.stdout.write('renderer regression checks passed\n');

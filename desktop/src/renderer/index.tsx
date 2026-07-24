@@ -13,11 +13,15 @@ import type {
 } from '../domain/models';
 import { decodeProfile, encodeProfile } from '../domain/profile-codec';
 import { factorInstanceKey, inventoryFingerprint } from '../domain/inventory-identity.ts';
+import {
+  chooseGroupMember, groupInventory
+} from '../domain/inventory-groups.ts';
 import { evaluateAdjustedResult, hasSamePhysicalSelection } from '../domain/result-adjustment.ts';
 import { externalTraitLevelRule } from '../domain/trait-level-rules';
 import {
   addStoredProfile, cacheAnalysis, confirmResult, createAnalysisContext, createWorkspace,
-  deleteStoredProfile, findReservationConflicts, getCacheStatus, releaseConfirmedResult,
+  confirmedAllocationShortfall, confirmedFactorCount, deleteStoredProfile,
+  findReservationConflicts, getCacheStatus, releaseConfirmedResult,
   pruneInvalidAnalysisCaches, replaceStoredProfile, storeManualResult, storeWorkspace, updateStoredDraft, type CacheStatus,
   type StoredProfile, type WorkspaceState
 } from '../domain/workspace-store.ts';
@@ -227,7 +231,7 @@ function FactorGrid({
     const usedElsewhere = new Set(result.selected
       .filter((_, selectedIndex) => selectedIndex !== index)
       .map(factorInstanceKey));
-    return editing.availableInventory
+    const candidates = editing.availableInventory
       .filter(candidate => {
         const candidateKey = factorInstanceKey(candidate);
         if (usedElsewhere.has(candidateKey)) return false;
@@ -236,24 +240,29 @@ function FactorGrid({
         return kind === 'primary'
           ? (candidate.secondaryTraitHash >>> 0) === (sigil.secondaryTraitHash >>> 0)
           : (candidate.primaryTraitHash >>> 0) === (sigil.primaryTraitHash >>> 0);
-      })
+      });
+    return groupInventory(candidates)
       .sort((left, right) => {
-        if (factorInstanceKey(left) === currentKey) return -1;
-        if (factorInstanceKey(right) === currentKey) return 1;
-        const leftHash = kind === 'primary' ? left.primaryTraitHash : left.secondaryTraitHash;
-        const rightHash = kind === 'primary' ? right.primaryTraitHash : right.secondaryTraitHash;
+        const leftCurrent = left.members.some(item => factorInstanceKey(item) === currentKey);
+        const rightCurrent = right.members.some(item => factorInstanceKey(item) === currentKey);
+        if (leftCurrent !== rightCurrent) return leftCurrent ? -1 : 1;
+        const leftHash = kind === 'primary'
+          ? left.representative.primaryTraitHash : left.representative.secondaryTraitHash;
+        const rightHash = kind === 'primary'
+          ? right.representative.primaryTraitHash : right.representative.secondaryTraitHash;
         const leftName = traitByHash.get(leftHash >>> 0)?.nameZh ?? '未知词条';
         const rightName = traitByHash.get(rightHash >>> 0)?.nameZh ?? '未知词条';
         return leftName.localeCompare(rightName, 'zh-CN')
-          || right.sigilLevel - left.sigilLevel
-          || left.inventorySlotId - right.inventorySlotId;
+          || right.representative.sigilLevel - left.representative.sigilLevel
+          || left.groupKey.localeCompare(right.groupKey);
       })
-      .map(candidate => {
+      .map(group => {
+        const candidate = chooseGroupMember(group, currentKey);
         const hash = kind === 'primary' ? candidate.primaryTraitHash : candidate.secondaryTraitHash;
         const trait = traitByHash.get(hash >>> 0);
         return {
           value: factorInstanceKey(candidate),
-          label: `${trait?.nameZh ?? '未知词条'} · Lv ${candidate.sigilLevel} · 位置 ${candidate.inventorySlotId}`
+          label: `${trait?.nameZh ?? '未知词条'} · Lv ${candidate.sigilLevel} · 可用 ${group.count}`
         };
       });
   };
@@ -287,7 +296,6 @@ function FactorGrid({
         label={`因子 ${index + 1}`} mode={mode}
         primaryTags={primaryTags} secondaryTags={secondaryTags}
         hasIssue={primaryAvoid || secondaryAvoid || isSubstitution}
-        footerStart={`库存位置 ${sigil.inventorySlotId}`}
         headerActions={editing && <span className="factor-card-actions">
           <button type="button" aria-label={`更换因子 ${index + 1}`} title="更换整枚因子"
             onClick={() => editing.onReplace(index)}><Pencil size={13} /></button>
@@ -324,10 +332,7 @@ function SkillLevelSummary({
     ...profile.defensePrimary,
     ...profile.optional
   ];
-  const targetIndex = new Map<string, number>();
-  targetOrder.forEach((id, index) => {
-    if (!targetIndex.has(id)) targetIndex.set(id, index);
-  });
+  const targetIds = new Set(targetOrder);
   const avoid = new Set(profile.avoid);
   const levels = new Map<number, {
     hash: number;
@@ -348,15 +353,23 @@ function SkillLevelSummary({
       levels.set(hash, current);
     }
   }
+  const categoryRank: Readonly<Record<string, number>> = {
+    basic: 0,
+    attack: 1,
+    defense: 2,
+    support: 3,
+    special: 3,
+    character: 4
+  };
   const entries = [...levels.values()].sort((left, right) => {
-    const leftTarget = left.trait ? targetIndex.get(left.trait.id) : undefined;
-    const rightTarget = right.trait ? targetIndex.get(right.trait.id) : undefined;
-    if (leftTarget !== undefined || rightTarget !== undefined) {
-      if (leftTarget === undefined) return 1;
-      if (rightTarget === undefined) return -1;
-      if (leftTarget !== rightTarget) return leftTarget - rightTarget;
-    }
-    return (left.trait?.nameZh ?? '').localeCompare(right.trait?.nameZh ?? '', 'zh-CN');
+    const leftCategory = left.trait?.category ?? 'unknown';
+    const rightCategory = right.trait?.category ?? 'unknown';
+    const categoryDifference = (categoryRank[leftCategory] ?? 5) - (categoryRank[rightCategory] ?? 5);
+    if (categoryDifference !== 0) return categoryDifference;
+    const catalogDifference = (catalog.categories.find(item => item.id === leftCategory)?.order ?? 99)
+      - (catalog.categories.find(item => item.id === rightCategory)?.order ?? 99);
+    return catalogDifference
+      || (left.trait?.nameZh ?? '').localeCompare(right.trait?.nameZh ?? '', 'zh-CN');
   });
   return <section className="skill-level-summary" aria-label="本套配装的技能等级">
     <header><strong>技能汇总</strong><span>相同技能的等级已经合并</span></header>
@@ -364,7 +377,7 @@ function SkillLevelSummary({
       {entries.map(entry => {
         const trait = entry.trait;
         const externalRule = externalTraitLevelRule(trait?.id);
-        const isTarget = !!trait && targetIndex.has(trait.id);
+        const isTarget = !!trait && targetIds.has(trait.id);
         const isAvoid = !!trait && avoid.has(trait.id);
         return <span key={trait?.hash ?? `unknown-${entry.hash}`}
           className={`skill-level-chip ${!isTarget ? 'non-target' : ''} ${isAvoid ? 'avoid' : ''}`}
@@ -463,7 +476,7 @@ function App() {
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryCategory, setInventoryCategory] = useState('all');
   const [inventoryStatus, setInventoryStatus] = useState<'all' | 'available' | 'reserved' | 'equipped'>('all');
-  const [inventorySort, setInventorySort] = useState<'slot' | 'level' | 'primary' | 'secondary'>('slot');
+  const [inventorySort, setInventorySort] = useState<'level' | 'primary' | 'secondary'>('primary');
   const [inventoryPage, setInventoryPage] = useState(0);
   const [importing, setImporting] = useState(false);
   const [analysisRun, dispatchAnalysis] = useReducer(reduceAnalysisState, initialAnalysisRunState);
@@ -496,12 +509,12 @@ function App() {
     ?? workspace.profiles[0]!;
   const profile = activeRecord.profile;
   const analysis = activeRecord.cache?.analysis ?? null;
-  const currentInventoryKeys = useMemo(() => new Set(inventory?.sigils.map(factorInstanceKey) ?? []), [inventory]);
   const currentInventoryFingerprint = useMemo(
     () => inventory ? inventoryFingerprint(inventory.sigils) : null,
     [inventory]);
-  const confirmedMissingCount = activeRecord.confirmed?.instanceKeys
-    .filter(key => !currentInventoryKeys.has(key)).length ?? 0;
+  const confirmedMissingCount = activeRecord.confirmed && inventory
+    ? confirmedAllocationShortfall(workspace, activeRecord.id, inventory)
+    : 0;
 
   const traitById = useMemo(() => new Map(catalog.traits.map(trait => [trait.id, trait])), []);
   const traitByHash = useMemo(() => new Map(catalog.traits.map(trait =>
@@ -804,6 +817,10 @@ function App() {
     if (!inventory || analysisRun.phase === 'running') return;
     const context = createAnalysisContext(
       profile, activeRecord.id, inventory, workspace, currentInventoryFingerprint ?? undefined);
+    if (context.unresolvedLegacyReservationProfiles.length) {
+      setNotice(`“${context.unresolvedLegacyReservationProfiles.join('、')}”是旧版确认记录，当前库存无法核对。请先检查并取消旧配装，再开始分析。`);
+      return;
+    }
     const currentStatus = getCacheStatus(activeRecord.cache, context);
     if (!force && activeRecord.cache && currentStatus === 'current') {
       dispatchAnalysis({ type: 'restore', requestKey: context.requestKey, current: true });
@@ -921,25 +938,23 @@ function App() {
       setNotice('当前结果已经过期，请重新计算后再确认。');
       return;
     }
-    const currentKeys = new Set(inventory.sigils.map(factorInstanceKey));
-    const missing = result.selected.filter(sigil => !currentKeys.has(factorInstanceKey(sigil)));
-    if (missing.length) {
-      setNotice('存档中已经找不到这套配装使用的部分因子，请重新计算。');
-      return;
-    }
-    const conflicts = findReservationConflicts(workspace, activeRecord.id, result);
+    const conflicts = findReservationConflicts(workspace, activeRecord.id, result, inventory);
     if (conflicts.length) {
-      setNotice(`无法确认：这些因子已用于“${conflicts.map(item => item.profileName).join('、')}”。请先取消旧配装。`);
+      const names = [...new Set(conflicts.map(item => item.profileName).filter(Boolean))];
+      setNotice(names.length
+        ? `无法确认：可用数量不足，相关占用来自“${names.join('、')}”。`
+        : '无法确认：当前库存数量不足。');
       return;
     }
     try {
       cancelActiveRun('因子占用已变化，本次计算已停止。');
-      const confirmed = confirmResult(workspace, activeRecord.id, result, analysisContext.inventoryFingerprint);
+      const confirmed = confirmResult(
+        workspace, activeRecord.id, result, analysisContext.inventoryFingerprint, inventory);
       const next = pruneInvalidAnalysisCaches(
         confirmed, inventory, currentInventoryFingerprint ?? analysisContext.inventoryFingerprint);
       updateWorkspace(() => next);
       if (persistWorkspaceNow(next)) {
-        setNotice(`已确认“${profile.name}”的配装。其他方案计算时会排除这些具体因子。`);
+        setNotice(`已确认“${profile.name}”的配装。其他方案计算时会扣除对应库存数量。`);
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '这套配装无法确认。');
@@ -1030,7 +1045,7 @@ function App() {
   const recordStatus = useMemo(() => new Map(workspace.profiles.map(record => {
     if (record.confirmed) {
       const missing = inventory
-        ? record.confirmed.instanceKeys.some(key => !currentInventoryKeys.has(key))
+        ? confirmedAllocationShortfall(workspace, record.id, inventory) > 0
         : false;
       return [record.id, missing ? '确认需检查' : '已确认'] as const;
     }
@@ -1039,7 +1054,7 @@ function App() {
     const context = createAnalysisContext(
       record.profile, record.id, inventory, workspace, currentInventoryFingerprint);
     return [record.id, cacheStatusText(getCacheStatus(record.cache, context), true)] as const;
-  })), [currentInventoryFingerprint, currentInventoryKeys, inventory, workspace]);
+  })), [currentInventoryFingerprint, inventory, workspace]);
 
   const canAnalyze = !!inventory
     && targetCount > 0
@@ -1062,52 +1077,67 @@ function App() {
     if (selectedLoadoutProfileId && confirmedRecords.some(record => record.id === selectedLoadoutProfileId)) return;
     setSelectedLoadoutProfileId(confirmedRecords[0]?.id ?? null);
   }, [appPage, confirmedRecords, selectedLoadoutProfileId]);
-  const reservationByInstance = useMemo(() => {
-    const reservations = new Map<string, string>();
+  const reservationsByGroup = useMemo(() => {
+    const reservations = new Map<string, { count: number; names: string[] }>();
     for (const record of workspace.profiles) {
       if (!record.confirmed) continue;
       const name = loadoutNames.get(record.id) ?? record.profile.name;
-      for (const key of record.confirmed.instanceKeys) reservations.set(key, name);
+      const grouped = record.confirmed.groupReservations ?? [];
+      for (const allocation of grouped) {
+        const current = reservations.get(allocation.groupKey) ?? { count: 0, names: [] };
+        current.count += allocation.count;
+        if (!current.names.includes(name)) current.names.push(name);
+        reservations.set(allocation.groupKey, current);
+      }
     }
     return reservations;
   }, [loadoutNames, workspace.profiles]);
   const filteredInventory = useMemo(() => {
     if (!inventory) return [];
     const normalized = inventorySearch.trim().toLocaleLowerCase('zh-CN');
-    return [...inventory.sigils].filter(sigil => {
+    return groupInventory(inventory.sigils).map(group => {
+      const reservation = reservationsByGroup.get(group.groupKey);
+      return {
+        ...group,
+        reservedCount: reservation?.count ?? 0,
+        availableCount: Math.max(0, group.count - (reservation?.count ?? 0)),
+        reservedNames: reservation?.names ?? [],
+        wornCount: group.members.filter(item => item.wornByCharacterId).length
+      };
+    }).filter(group => {
+      const sigil = group.representative;
       const primary = traitByHash.get(sigil.primaryTraitHash >>> 0);
       const secondary = traitByHash.get(sigil.secondaryTraitHash >>> 0);
-      const reserved = reservationByInstance.has(factorInstanceKey(sigil));
       if (inventoryCategory !== 'all'
         && primary?.category !== inventoryCategory
         && secondary?.category !== inventoryCategory) return false;
-      if (inventoryStatus === 'available' && reserved) return false;
-      if (inventoryStatus === 'reserved' && !reserved) return false;
-      if (inventoryStatus === 'equipped' && !sigil.wornByCharacterId) return false;
+      if (inventoryStatus === 'available' && group.availableCount <= 0) return false;
+      if (inventoryStatus === 'reserved' && group.reservedCount <= 0) return false;
+      if (inventoryStatus === 'equipped' && group.wornCount <= 0) return false;
       if (normalized && ![
         primary?.nameZh, primary?.nameEn, secondary?.nameZh, secondary?.nameEn,
-        String(sigil.inventorySlotId), String(sigil.gemUnitId)
+        String(sigil.sigilLevel)
       ].some(value => value?.toLocaleLowerCase('zh-CN').includes(normalized))) return false;
       return true;
     }).sort((left, right) => {
+      const leftSigil = left.representative;
+      const rightSigil = right.representative;
       if (inventorySort === 'level') {
-        return right.sigilLevel - left.sigilLevel || left.inventorySlotId - right.inventorySlotId;
+        return rightSigil.sigilLevel - leftSigil.sigilLevel
+          || left.groupKey.localeCompare(right.groupKey);
       }
       if (inventorySort === 'primary') {
-        const leftName = traitByHash.get(left.primaryTraitHash >>> 0)?.nameZh ?? '未知词条';
-        const rightName = traitByHash.get(right.primaryTraitHash >>> 0)?.nameZh ?? '未知词条';
-        return leftName.localeCompare(rightName, 'zh-CN') || left.inventorySlotId - right.inventorySlotId;
+        const leftName = traitByHash.get(leftSigil.primaryTraitHash >>> 0)?.nameZh ?? '未知词条';
+        const rightName = traitByHash.get(rightSigil.primaryTraitHash >>> 0)?.nameZh ?? '未知词条';
+        return leftName.localeCompare(rightName, 'zh-CN') || left.groupKey.localeCompare(right.groupKey);
       }
-      if (inventorySort === 'secondary') {
-        const leftName = traitByHash.get(left.secondaryTraitHash >>> 0)?.nameZh ?? '未知词条';
-        const rightName = traitByHash.get(right.secondaryTraitHash >>> 0)?.nameZh ?? '未知词条';
-        return leftName.localeCompare(rightName, 'zh-CN') || left.inventorySlotId - right.inventorySlotId;
-      }
-      return left.inventorySlotId - right.inventorySlotId;
+      const leftName = traitByHash.get(leftSigil.secondaryTraitHash >>> 0)?.nameZh ?? '未知词条';
+      const rightName = traitByHash.get(rightSigil.secondaryTraitHash >>> 0)?.nameZh ?? '未知词条';
+      return leftName.localeCompare(rightName, 'zh-CN') || left.groupKey.localeCompare(right.groupKey);
     });
   }, [
     inventory, inventoryCategory, inventorySearch, inventorySort, inventoryStatus,
-    reservationByInstance, traitByHash
+    reservationsByGroup, traitByHash
   ]);
   const inventoryPageSize = 48;
   const inventoryPageCount = Math.max(1, Math.ceil(filteredInventory.length / inventoryPageSize));
@@ -1346,7 +1376,7 @@ function App() {
 
     <section className="results" aria-label="分析结果" ref={resultsRef} id="build-results">
       <div className="results-heading">
-        <div><h2>配装方案</h2><p>一次查看一套方案。每张卡对应存档中的一枚具体因子。</p></div>
+        <div><h2>配装方案</h2><p>一次查看一套方案。每张卡是一枚配装因子。</p></div>
         <div className="results-heading-actions">
           {analysis && <HelpPopover label="结果标记"
             text="灰色词条没有出现在任何配装目标中；红色提示表示尽量避开或不能出现的问题，优先级高于灰色标记。" />}
@@ -1397,7 +1427,7 @@ function App() {
           }));
           const normalizedPickerSearch = factorPickerSearch.trim().toLocaleLowerCase('zh-CN');
           const pickerCandidates = factorPicker?.sourceSignature === selectedSourceResult.signature
-            ? (analysisContext?.availableInventory ?? [])
+            ? groupInventory((analysisContext?.availableInventory ?? [])
               .filter(sigil => {
                 const key = factorInstanceKey(sigil);
                 const replacingKey = factorPicker.mode === 'replace' && factorPicker.index !== undefined
@@ -1410,11 +1440,12 @@ function App() {
                 if (!normalizedPickerSearch) return true;
                 const primary = traitByHash.get(sigil.primaryTraitHash >>> 0)?.nameZh ?? '未知词条';
                 const secondary = traitByHash.get(sigil.secondaryTraitHash >>> 0)?.nameZh ?? '未知词条';
-                return `${primary} ${secondary} ${sigil.sigilLevel} ${sigil.inventorySlotId}`
+                return `${primary} ${secondary} ${sigil.sigilLevel}`
                   .toLocaleLowerCase('zh-CN').includes(normalizedPickerSearch);
-              })
-              .sort((left, right) => right.sigilLevel - left.sigilLevel
-                || left.inventorySlotId - right.inventorySlotId)
+              }))
+              .sort((left, right) =>
+                right.representative.sigilLevel - left.representative.sigilLevel
+                || left.groupKey.localeCompare(right.groupKey))
             : [];
           return <article className="result-detail" role="tabpanel" id="selected-result"
             aria-labelledby={`result-tab-${selectedResultIndex}`}>
@@ -1460,7 +1491,7 @@ function App() {
             <SkillLevelSummary result={selectedResult} profile={profile} traitByHash={traitByHash} />
 
             <div className="confirm-row">
-              <HelpPopover label="确认配装" text="确认后，这些具体因子会留给当前方案。计算其他角色时会排除它们；同词条的其他因子不受影响。" />
+              <HelpPopover label="确认配装" text="确认后，工具会从对应的因子库存中扣除所需数量。其他角色只能使用剩余数量。" />
               {confirmedHere
                 ? <><span className={`confirmed-mark ${confirmedMissingCount ? 'needs-check' : ''}`}>
                   {confirmedMissingCount ? <AlertTriangle size={17} /> : <CheckCircle2 size={17} />}
@@ -1490,16 +1521,17 @@ function App() {
               <label className="factor-picker-search">
                 <Search size={17} /><span className="sr-only">搜索可用因子</span>
                 <input data-dialog-initial value={factorPickerSearch}
-                  placeholder="搜索主词条、副词条、等级或库存位置"
+                  placeholder="搜索主词条、副词条或等级"
                   onChange={event => setFactorPickerSearch(event.target.value)} />
               </label>
               <div className="factor-picker-list">
                 {pickerCandidates.length
-                  ? pickerCandidates.map(sigil => {
+                  ? pickerCandidates.map(group => {
+                    const sigil = group.representative;
                     const primary = traitByHash.get(sigil.primaryTraitHash >>> 0);
                     const secondary = traitByHash.get(sigil.secondaryTraitHash >>> 0);
                     return <button type="button" className="factor-picker-option"
-                      key={factorInstanceKey(sigil)}
+                      key={group.groupKey}
                       onClick={() => {
                         if (factorPicker?.mode === 'replace' && factorPicker.index !== undefined) {
                           replaceManualInstance(
@@ -1516,7 +1548,7 @@ function App() {
                       }}>
                       <span><TraitIcon trait={primary} size={26} /><b>{primary?.nameZh ?? '未知词条'}</b></span>
                       <span><TraitIcon trait={secondary} size={22} /><b>{secondary?.nameZh ?? '未知词条'}</b></span>
-                      <small>因子 Lv {sigil.sigilLevel} · 库存位置 {sigil.inventorySlotId}</small>
+                      <small>因子 Lv {sigil.sigilLevel}<em>可用 {group.count}</em></small>
                     </button>;
                   })
                   : <div className="factor-picker-empty">没有符合条件的可用因子。</div>}
@@ -1539,7 +1571,7 @@ function App() {
       <header className="inventory-page-heading">
         <div><h2>持有因子</h2>
           <p>{inventory
-            ? `显示上次手动读取的库存快照，共 ${inventory.sigils.length} 个双词条因子。`
+            ? `显示上次手动读取的库存快照，共 ${inventory.sigils.length} 枚双词条因子。`
             : '读取存档后，可在这里查看每一枚双词条因子。'}</p></div>
         <HelpPopover label="库存快照" text="应用启动时只恢复上次成功读取的结果，不会重新打开存档。游戏内库存变化后，请手动点击“读取存档”更新。" />
       </header>
@@ -1549,7 +1581,7 @@ function App() {
           <label className="sr-only" htmlFor="inventory-search">搜索持有因子</label>
           <input id="inventory-search" value={inventorySearch}
             onChange={event => setInventorySearch(event.target.value)}
-            placeholder="搜索主词条、副词条或库存位置" />
+            placeholder="搜索主词条、副词条或等级" />
           {inventorySearch && <button type="button" aria-label="清空搜索" onClick={() => setInventorySearch('')}><X size={16} /></button>}
         </div>
         <label className="inventory-filter"><span>技能分类</span>
@@ -1568,7 +1600,6 @@ function App() {
         </label>
         <label className="inventory-filter"><span>排序</span>
           <select value={inventorySort} onChange={event => setInventorySort(event.target.value as typeof inventorySort)}>
-            <option value="slot">库存位置</option>
             <option value="level">因子等级</option>
             <option value="primary">主词条名称</option>
             <option value="secondary">副词条名称</option>
@@ -1577,7 +1608,7 @@ function App() {
       </div>
 
       <div className="inventory-list-summary">
-        <span>找到 <strong>{filteredInventory.length}</strong> 个因子</span>
+        <span>找到 <strong>{filteredInventory.length}</strong> 种因子</span>
         {inventory && <span>{inventory.sourceDisplayName ?? '上次读取的存档'} · 原存档不会被修改</span>}
       </div>
 
@@ -1585,18 +1616,23 @@ function App() {
         ? <div className="inventory-empty"><Database size={30} /><strong>还没有因子库存</strong><span>点击上方“读取存档”选择 SaveData*.dat。</span></div>
         : visibleInventory.length === 0
           ? <div className="inventory-empty"><Search size={28} /><strong>没有符合条件的因子</strong><span>试试清空搜索或更换筛选条件。</span></div>
-          : <div className="inventory-grid">{visibleInventory.map(sigil => {
+          : <div className="inventory-grid">{visibleInventory.map(group => {
+            const sigil = group.representative;
             const primary = traitByHash.get(sigil.primaryTraitHash >>> 0);
             const secondary = traitByHash.get(sigil.secondaryTraitHash >>> 0);
-            const reservedFor = reservationByInstance.get(factorInstanceKey(sigil));
-            return <FactorCard key={factorInstanceKey(sigil)}
+            const status = [
+              group.availableCount > 0 ? `可用 ${group.availableCount}` : '',
+              group.reservedCount > 0 ? `已确认 ${group.reservedCount}` : '',
+              group.wornCount > 0 ? `游戏内装备 ${group.wornCount}` : ''
+            ].filter(Boolean).join(' · ');
+            return <FactorCard key={group.groupKey}
               sigil={sigil} primary={primary} secondary={secondary}
-              label={`库存位置 ${sigil.inventorySlotId}`} mode="inventory"
-              hasIssue={!!reservedFor}
-              footerStart={sigil.wornByCharacterId ? '游戏内已装备（角色暂未识别）' : reservedFor ? '已确认配装' : '当前可用'}
-              footerEnd={reservedFor
-                ? <em className="reserved-label">已留给 {reservedFor}</em>
-                : !sigil.wornByCharacterId && <em className="available-label">可用于配装</em>} />;
+              label={`持有 ${group.count}`} mode="inventory"
+              hasIssue={group.reservedCount > 0}
+              footerStart={status}
+              footerEnd={group.reservedNames.length > 0
+                ? <em className="reserved-label">已留给 {group.reservedNames.join('、')}</em>
+                : <em className="available-label">可用于配装</em>} />;
           })}</div>}
 
       {inventory && filteredInventory.length > inventoryPageSize && <nav className="inventory-pagination" aria-label="因子列表翻页">
@@ -1611,8 +1647,8 @@ function App() {
       </nav>}
     </section> : <section className="loadouts-page" aria-label="已确认配装">
       <header className="loadouts-page-heading">
-        <div><h2>已确认配装</h2><p>这些配装已经占用具体因子，其他方案计算时会自动避开。</p></div>
-        <HelpPopover label="已确认配装" text="这里只记录具体因子的占用关系。同词条的其他因子仍可用于别的角色；库存变化后，缺失的因子会标为需要检查。" />
+        <div><h2>已确认配装</h2><p>这些配装已经占用对应数量，其他方案只会使用剩余库存。</p></div>
+        <HelpPopover label="已确认配装" text="同词条、同等级的因子按数量管理。重新读取存档后，如果持有数量不够，对应配装会标为需要检查。" />
       </header>
       {confirmedRecords.length === 0
         ? <div className="empty-loadouts"><CheckCircle2 size={28} /><strong>还没有确认任何配装</strong><span>在计算结果中选择一套方案并点击“确认这套配装”。</span></div>
@@ -1620,14 +1656,16 @@ function App() {
           <aside className="loadout-list" aria-label="已确认配装列表">
             {confirmedRecords.map(record => {
               const missingCount = inventory
-                ? record.confirmed!.instanceKeys.filter(key => !currentInventoryKeys.has(key)).length
+                ? confirmedAllocationShortfall(workspace, record.id, inventory)
                 : 0;
               return <button type="button" key={record.id}
                 className={record.id === selectedLoadoutRecord?.id ? 'active' : ''}
                 aria-pressed={record.id === selectedLoadoutRecord?.id}
                 onClick={() => setSelectedLoadoutProfileId(record.id)}>
                 <span>{loadoutNames.get(record.id)}</span>
-                <small>{missingCount ? `${missingCount} 枚因子需检查` : `${record.confirmed!.instanceKeys.length} 枚因子`}</small>
+                <small>{missingCount
+                  ? `${missingCount} 枚因子需检查`
+                  : `${confirmedFactorCount(record.confirmed!)} 枚因子`}</small>
               </button>;
             })}
           </aside>
