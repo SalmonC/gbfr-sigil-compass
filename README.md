@@ -18,7 +18,7 @@
 
 应用不会修改存档，也不会自动备份。第一次使用前，建议手动复制一份 `SaveData*.dat`。
 
-<!-- 配图 1：程序启动后的主界面，建议文件：docs/images/readme/01-home.png -->
+![因子罗盘主界面](docs/images/readme/01-home.png)
 
 ### 2. 读取存档
 
@@ -32,7 +32,7 @@
 
 读取成功后，顶部会显示双词条因子总数和当前可用数量。工具读取的是当前库存的快照，游戏内获得、强化或分解因子后，需要重新读取存档。
 
-<!-- 配图 2：读取成功后的库存摘要，建议文件：docs/images/readme/02-inventory-loaded.png -->
+![存档读取成功后的库存摘要](docs/images/readme/02-inventory-loaded.png)
 
 ### 3. 设置配装目标
 
@@ -51,13 +51,13 @@
 
 一个简单的配置是“3 追击 + 3 伤害上限”：在“必须满足”中分别添加 3 次追击和 3 次伤害上限，工具会从现有库存中寻找能够凑齐这些技能的因子组合。
 
-<!-- 配图 3：技能池与完整目标配置，画面中同时展示必须满足、可选目标和需要避开的技能，建议文件：docs/images/readme/03-target-editor.png -->
+![技能池和配装目标设置](docs/images/readme/03-target-editor.png)
 
 ### 4. 开始分析
 
 读取存档并至少设置一个目标后，点击“开始分析”。完成后，页面会自动跳到结果区，最多显示排名前 10 的逻辑方案。
 
-<!-- 配图 4：计算设置与“开始分析”按钮，建议文件：docs/images/readme/04-solver-settings.png -->
+![计算设置和开始分析按钮](docs/images/readme/04-solver-settings.png)
 
 ### 5. 查看计算结果
 
@@ -67,7 +67,7 @@
 
 技能组合相同但等级不同的因子属于同一逻辑方案，实际选取时会优先使用高等级实例。`A&B` 与 `B&A` 的主词条不同，因此会作为两种方案。
 
-<!-- 配图 5：一套完整结果，画面中展示方案标签、问题提示、因子卡片和底部技能汇总，建议文件：docs/images/readme/05-result-overview.png -->
+![完整的计算结果和技能等级汇总](docs/images/readme/05-result-overview.png)
 
 ### 6. 按库存手动调整
 
@@ -81,7 +81,7 @@
 
 如果调整后缺少“必须满足”的技能，或加入了“不能出现”的技能，这套配装将无法确认。
 
-<!-- 配图 6：展开词条选择框，并展示更换、删除和添加整枚因子的入口，建议文件：docs/images/readme/06-adjust-result.png -->
+![手动调整词条和整枚因子](docs/images/readme/06-adjust-result.png)
 
 ### 7. 确认并应用配装
 
@@ -89,7 +89,7 @@
 
 工具只读取库存、计算方案，不会把配装写回存档。确认后仍需按照因子卡片中的结果进入游戏手动装备。
 
-<!-- 配图 7：确认配装前的一套最终结果与确认按钮，建议文件：docs/images/readme/07-confirm-loadout.png -->
+![确认最终配装方案](docs/images/readme/07-confirm-loadout.png)
 
 ### 8. 保存并分享目标方案
 
@@ -97,7 +97,7 @@
 
 分享字符串不包含存档路径、库存或玩家身份。游戏内库存发生变化后，重新读取存档，再明确点击“重新计算”即可更新结果。
 
-<!-- 配图 8：“方案操作”菜单中的导出分享字符串入口，建议文件：docs/images/readme/08-share-profile.png -->
+![导出或导入分享字符串](docs/images/readme/08-share-profile.png)
 
 更完整的操作说明见 [使用说明](docs/user-guide.md)，启动、存档和计算问题见 [故障排查](docs/troubleshooting.md)。
 
@@ -109,7 +109,7 @@
 
 “持有因子”页面会合并主词条、副词条和等级完全相同的因子，并显示持有、可用和已确认数量。可以搜索主副词条，也可以按分类、可用状态、游戏内装备状态和等级筛选或排序。
 
-<!-- 配图 9：“持有因子”页面，展示搜索、筛选、合并数量和占用状态，建议文件：docs/images/readme/09-inventory-page.png -->
+![持有因子的搜索、筛选和占用状态](docs/images/readme/09-inventory-page.png)
 
 ### 方案管理
 
@@ -119,7 +119,7 @@
 
 “已确认配装”页面可以集中查看或取消各角色占用。重新读取存档后，如果某类因子的持有数量不足，相关配装会标记为需要检查；工具不会擅自替换因子或决定优先保留哪套配装。
 
-<!-- 配图 10：“已确认配装”页面，展示多套角色配装和需要检查的状态，建议文件：docs/images/readme/10-confirmed-loadouts.png -->
+![集中查看已确认配装](docs/images/readme/10-confirmed-loadouts.png)
 
 ### 计算资源设置
 
