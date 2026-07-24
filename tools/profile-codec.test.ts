@@ -11,6 +11,15 @@ assert.deepEqual(decodeProfile(encodeProfile(fixture), catalog), {
   forbidden: [...fixture.forbidden].sort(),
   avoid: [...fixture.avoid].sort()
 });
+assert.deepEqual(
+  decodeProfile(encodeProfile(fixture).replace(/^GBFR-RANK-4\./, 'GBFR-RANK-3.'), catalog),
+  {
+    ...fixture,
+    forbidden: [...fixture.forbidden].sort(),
+    avoid: [...fixture.avoid].sort()
+  },
+  'RANK-3 share strings must remain importable after the result-identity upgrade'
+);
 
 const legacyProfile = {
   schemaVersion: 2,

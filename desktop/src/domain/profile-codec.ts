@@ -1,7 +1,7 @@
 import type { BuildProfile, CatalogData } from './models';
 
-const PREFIX = 'GBFR-RANK-3';
-const LEGACY_PREFIX = 'GBFR-RANK-2';
+const PREFIX = 'GBFR-RANK-4';
+const LEGACY_PREFIXES = new Set(['GBFR-RANK-3', 'GBFR-RANK-2']);
 const domainNames = [
   'mandatory', 'basicPrimary', 'attackPrimary', 'defensePrimary', 'optional',
   'basicSubstitutionOrder', 'forbidden', 'avoid'
@@ -97,7 +97,7 @@ export function encodeProfile(profile: BuildProfile): string {
 
 export function decodeProfile(code: string, catalog: CatalogData): BuildProfile {
   const [prefix, payload, expected, extra] = code.trim().split('.');
-  if ((prefix !== PREFIX && prefix !== LEGACY_PREFIX) || !payload || !expected || extra) {
+  if ((prefix !== PREFIX && !LEGACY_PREFIXES.has(prefix ?? '')) || !payload || !expected || extra) {
     throw new Error('分享字符串格式不正确。');
   }
   const json = fromBase64Url(payload);

@@ -8,6 +8,7 @@ type OracleResult = Pick<SolverResult,
   'signature' | 'primaryMatched' | 'exactPrimaryCoverage' | 'basicSubstitutionUsage' |
   'optionalMatched' | 'optionalCoverage' | 'avoidOccurrences' | 'usedSlots' |
   'levelSum' | 'tieA' | 'tieB'>;
+type OracleCandidate = OracleResult & { readonly equivalenceKey: string };
 
 const hashText = (value: number) => `0x${value.toString(16).padStart(8, '0')}`;
 const trait = (id: string, hash: number) => ({
@@ -84,6 +85,13 @@ function bruteForce(request: SolverRequest): OracleResult[] {
   const substitutions = hashes(request.profile.basicSubstitutionOrder);
   const forbidden = new Set(hashes(request.profile.forbidden));
   const avoid = new Set(hashes(request.profile.avoid));
+  const equivalenceTargets = new Set(hashes([
+    ...request.profile.mandatory,
+    ...request.profile.basicPrimary,
+    ...request.profile.attackPrimary,
+    ...request.profile.defensePrimary,
+    ...request.profile.optional
+  ]));
   const forceBasic = request.profile.forceBasicPrimary;
   const forceAttack = request.profile.forceAttackPrimary;
   const forceDefense = request.profile.forceDefensePrimary;
@@ -109,7 +117,10 @@ function bruteForce(request: SolverRequest): OracleResult[] {
     const secondary = item.secondaryTraitHash >>> 0;
     if (forbidden.has(primary) || forbidden.has(secondary)) continue;
     if (!relevant.has(primary) && !relevant.has(secondary)) continue;
-    const key = `${primary.toString(16).padStart(8, '0')}:${secondary.toString(16).padStart(8, '0')}`;
+    const secondaryRole = equivalenceTargets.has(secondary)
+      ? secondary.toString(16).padStart(8, '0')
+      : avoid.has(secondary) ? '*avoid' : '*';
+    const key = `${primary.toString(16).padStart(8, '0')}:${secondaryRole}`;
     const bucket = grouped.get(key) ?? [];
     bucket.push(item);
     grouped.set(key, bucket);
@@ -127,7 +138,7 @@ function bruteForce(request: SolverRequest): OracleResult[] {
     return result;
   };
   const mandatoryRequirements = requirements(mandatory);
-  const results: OracleResult[] = [];
+  const results: OracleCandidate[] = [];
 
   const visit = (index: number, remainingSlots: number, chosen: number[]): void => {
     if (index < groups.length) {
@@ -148,15 +159,22 @@ function bruteForce(request: SolverRequest): OracleResult[] {
     let tieA = 0;
     let tieB = 0;
     const signatureParts: string[] = [];
+    const selectedInstances: RawSigil[] = [];
     for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
       const count = chosen[groupIndex]!;
       if (!count) continue;
       const group = groups[groupIndex]!;
-      total.set(group.primary, (total.get(group.primary) ?? 0) + count);
-      total.set(group.secondary, (total.get(group.secondary) ?? 0) + count);
-      primary.set(group.primary, (primary.get(group.primary) ?? 0) + count);
-      avoidOccurrences += count * ((avoid.has(group.primary) ? 1 : 0) + (avoid.has(group.secondary) ? 1 : 0));
-      levelSum += group.instances.slice(0, count).reduce((sum, item) => sum + item.sigilLevel, 0);
+      const chosenInstances = group.instances.slice(0, count);
+      selectedInstances.push(...chosenInstances);
+      for (const item of chosenInstances) {
+        const primaryHash = item.primaryTraitHash >>> 0;
+        const secondaryHash = item.secondaryTraitHash >>> 0;
+        total.set(primaryHash, (total.get(primaryHash) ?? 0) + 1);
+        total.set(secondaryHash, (total.get(secondaryHash) ?? 0) + 1);
+        primary.set(primaryHash, (primary.get(primaryHash) ?? 0) + 1);
+        avoidOccurrences += Number(avoid.has(primaryHash)) + Number(avoid.has(secondaryHash));
+        levelSum += item.sigilLevel;
+      }
       tieA += coefficient(group.key, request.runSeed, 0x9e3779b9) * count;
       tieB += coefficient(group.key, request.runSeed, 0x85ebca6b) * count;
       signatureParts.push(`${group.key}*${count}`);
@@ -203,15 +221,37 @@ function bruteForce(request: SolverRequest): OracleResult[] {
       total.set(hash, available - 1);
       return true;
     });
+    const coverageKey = [
+      primaryMatched,
+      exactPrimaryCoverage.map(Number).join(''),
+      basicSubstitutionUsage.join(','),
+      optionalCoverage.map(Number).join('')
+    ].join('/');
+    const positionKey = selectedInstances.map(item => {
+      const primaryHash = (item.primaryTraitHash >>> 0).toString(16).padStart(8, '0');
+      const secondaryHash = item.secondaryTraitHash >>> 0;
+      return `${primaryHash}:${equivalenceTargets.has(secondaryHash)
+        ? secondaryHash.toString(16).padStart(8, '0')
+        : '*'}`;
+    }).sort().join('|');
     results.push({
       signature: signatureParts.join('|'), primaryMatched, exactPrimaryCoverage,
       basicSubstitutionUsage: allowSubstitution ? basicSubstitutionUsage : [],
       optionalMatched: optionalCoverage.filter(Boolean).length, optionalCoverage,
-      avoidOccurrences, usedSlots, levelSum, tieA, tieB
+      avoidOccurrences, usedSlots, levelSum, tieA, tieB,
+      equivalenceKey: `${coverageKey}/${positionKey}`
     });
   };
   visit(0, request.maxSlots, []);
-  return results.sort((a, b) => compareOracle(a, b, force)).slice(0, Math.min(10, Math.max(1, request.resultLimit)));
+  const seen = new Set<string>();
+  return results.sort((a, b) => compareOracle(a, b, force))
+    .filter(result => {
+      if (seen.has(result.equivalenceKey)) return false;
+      seen.add(result.equivalenceKey);
+      return true;
+    })
+    .slice(0, Math.min(10, Math.max(1, request.resultLimit)))
+    .map(({ equivalenceKey: _equivalenceKey, ...result }) => result);
 }
 
 function verify(request: SolverRequest, label: string): void {

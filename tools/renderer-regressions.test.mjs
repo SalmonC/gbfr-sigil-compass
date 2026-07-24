@@ -4,6 +4,7 @@ import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
 const renderer = await readFile(path.join(root, 'desktop/src/renderer/index.tsx'), 'utf8');
+const factorCard = await readFile(path.join(root, 'desktop/src/renderer/components/factor-card.tsx'), 'utf8');
 const styles = await readFile(path.join(root, 'desktop/src/renderer/styles.css'), 'utf8');
 const solver = await readFile(path.join(root, 'desktop/src/domain/solver.ts'), 'utf8');
 const worker = await readFile(path.join(root, 'desktop/src/domain/solver-worker.ts'), 'utf8');
@@ -28,5 +29,14 @@ assert.match(webpack, /test: \/\\\.wasm\$\/i, type: 'asset\/resource'/);
 assert.match(styles, /\.pool \{[^}]*height: 100%[^}]*overflow: hidden/s);
 assert.match(styles, /\.skill-grid \{[^}]*flex: 1 1 0[^}]*min-height: 0[^}]*overflow-y: auto/s);
 assert.doesNotMatch(styles, /\.skill-grid \{[^}]*max-height: 650px/s);
+assert.match(renderer, /className="inventory-summary-line"/);
+assert.match(styles, /\.inventory-summary \{[^}]*min-width: min\(100%, 260px\)[^}]*flex-wrap: wrap/s);
+assert.match(styles, /\.inventory-summary-line \{[^}]*white-space: nowrap/s);
+assert.match(factorCard, /className="factor-trait-select"/);
+assert.match(renderer, /className="skill-level-summary"/);
+assert.match(renderer, /storeManualResult/);
+assert.doesNotMatch(renderer, /<span>等级合计<\/span>/);
+assert.match(styles, /\.factor-trait\.non-target/);
+assert.match(styles, /\.factor-picker-dialog/);
 
 process.stdout.write('renderer regression checks passed\n');

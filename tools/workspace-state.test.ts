@@ -3,9 +3,15 @@ import { readFile } from 'node:fs/promises';
 import {
   cacheAnalysis, confirmResult, createAnalysisContext, findReservationConflicts,
   getCacheStatus, pruneInvalidAnalysisCaches, releaseConfirmedResult, updateStoredDraft,
-  type WorkspaceState
+  storeManualResult, type WorkspaceState
 } from '../desktop/src/domain/workspace-store.ts';
 import { factorInstanceKey, factorFingerprint } from '../desktop/src/domain/inventory-identity.ts';
+import {
+  evaluateAdjustedResult, hasSamePhysicalSelection
+} from '../desktop/src/domain/result-adjustment.ts';
+import {
+  dedupeEquivalentResults, resultEquivalenceKey, searchFactorGroupKey, targetTraitHashes
+} from '../desktop/src/domain/result-equivalence.ts';
 import { initialAnalysisRunState, reduceAnalysisState } from '../desktop/src/domain/analysis-state.ts';
 import type { BuildProfile, CatalogData, SolverAnalysis, SolverResult } from '../desktop/src/domain/models.ts';
 import type { ImportedInventory, RawSigil } from '../desktop/src/shared/contracts.ts';
@@ -42,6 +48,14 @@ let workspace: WorkspaceState = {
 const contextOne = createAnalysisContext(workspace.profiles[0]!.profile, 'one', inventory, workspace);
 workspace = cacheAnalysis(workspace, 'one', contextOne, 1, analysis);
 assert.equal(getCacheStatus(workspace.profiles[0]!.cache, contextOne), 'current');
+const manualCachedResult = { ...analysis.results[0]!, signature: 'manual-v1:test', manuallyAdjusted: true };
+workspace = storeManualResult(workspace, 'one', analysis.results[0]!.signature, manualCachedResult);
+assert.equal(
+  workspace.profiles[0]!.cache?.manualResults?.[analysis.results[0]!.signature]?.signature,
+  'manual-v1:test'
+);
+workspace = storeManualResult(workspace, 'one', analysis.results[0]!.signature, undefined);
+assert.equal(workspace.profiles[0]!.cache?.manualResults, undefined);
 
 const renamed = updateStoredDraft(
   workspace, 'one', { ...workspace.profiles[0]!.profile, name: '只改名称' });
@@ -114,6 +128,84 @@ assert.deepEqual(
 );
 assert.equal(namingWorkspace.profiles[0]!.confirmed?.profileSnapshot?.name, '同名方案');
 assert.equal(namingWorkspace.profiles[0]!.confirmed?.result?.selected[0]?.gemUnitId, 31001);
+
+const testTraits = catalog.traits.slice(0, 5);
+assert.equal(testTraits.length, 5);
+const traitHash = (index: number) => Number.parseInt(testTraits[index]!.hash.slice(2), 16) >>> 0;
+const positionedSigil = (
+  id: number,
+  slot: number,
+  primaryHash: number,
+  secondaryHash: number,
+  level = 15
+): RawSigil => ({
+  gemUnitId: id,
+  inventorySlotId: slot,
+  sigilHash: id,
+  sigilLevel: level,
+  primaryTraitHash: primaryHash,
+  primaryLevel: level,
+  secondaryTraitHash: secondaryHash,
+  secondaryLevel: level,
+  flags: 0,
+  wornByCharacterId: null
+});
+const manualProfile: BuildProfile = {
+  ...profile,
+  mandatory: [testTraits[0]!.id],
+  basicPrimary: [],
+  forceBasicPrimary: false,
+  allowBasicSubstitution: false,
+  basicSubstitutionOrder: [],
+  attackPrimary: [],
+  forceAttackPrimary: false,
+  defensePrimary: [],
+  forceDefensePrimary: false,
+  optional: [testTraits[2]!.id],
+  forbidden: [testTraits[4]!.id],
+  avoid: [testTraits[3]!.id]
+};
+const positionedOne = [
+  positionedSigil(40001, 21, traitHash(0), traitHash(2)),
+  positionedSigil(40002, 22, traitHash(1), traitHash(3))
+];
+const adjusted = evaluateAdjustedResult(result([]), manualProfile, catalog, positionedOne);
+assert.equal(adjusted.mandatorySatisfied, true);
+assert.equal(adjusted.optionalMatched, 1);
+assert.equal(adjusted.avoidOccurrences, 1);
+assert.equal(adjusted.manuallyAdjusted, true);
+assert.equal(
+  evaluateAdjustedResult(result([]), manualProfile, catalog, positionedOne.slice(1)).mandatorySatisfied,
+  false
+);
+assert.throws(() => confirmResult(
+  workspace,
+  'one',
+  evaluateAdjustedResult(result([]), manualProfile, catalog, positionedOne.slice(1)),
+  'inventory'
+));
+assert.equal(hasSamePhysicalSelection(positionedOne, [...positionedOne].reverse()), true);
+
+const positionedTwo = [
+  positionedSigil(40003, 23, traitHash(0), traitHash(2)),
+  positionedSigil(40004, 24, traitHash(1), traitHash(4))
+];
+const movedUnmatchedPosition = [
+  positionedSigil(40005, 25, traitHash(0), traitHash(3)),
+  positionedSigil(40006, 26, traitHash(1), traitHash(2))
+];
+const targetHashes = targetTraitHashes(manualProfile, catalog);
+const equivalentOne = { ...adjusted, selected: positionedOne, avoidOccurrences: 0 };
+const equivalentTwo = { ...adjusted, selected: positionedTwo, avoidOccurrences: 0 };
+const differentPosition = { ...adjusted, selected: movedUnmatchedPosition, avoidOccurrences: 0 };
+assert.equal(resultEquivalenceKey(equivalentOne, targetHashes), resultEquivalenceKey(equivalentTwo, targetHashes));
+assert.notEqual(resultEquivalenceKey(equivalentOne, targetHashes), resultEquivalenceKey(differentPosition, targetHashes));
+assert.deepEqual(dedupeEquivalentResults(
+  [equivalentOne, equivalentTwo, differentPosition], targetHashes), [equivalentOne, differentPosition]);
+assert.equal(
+  searchFactorGroupKey(positionedOne[1]!, targetHashes, new Set()),
+  searchFactorGroupKey(positionedTwo[1]!, targetHashes, new Set())
+);
 
 let machine = reduceAnalysisState(initialAnalysisRunState, { type: 'start', requestKey: 'A' });
 const firstRun = machine.runId;

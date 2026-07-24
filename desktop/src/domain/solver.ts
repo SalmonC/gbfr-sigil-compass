@@ -1,5 +1,8 @@
 import type { RawSigil } from '../shared/contracts';
 import type { SolverAnalysis, SolverRequest, SolverResult } from './models';
+import {
+  dedupeEquivalentResults, searchFactorGroupKey, targetTraitHashes
+} from './result-equivalence.ts';
 
 interface FactorGroup {
   readonly primary: number;
@@ -387,6 +390,7 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
   const substitutionHashes = idsToHashes(request.profile.basicSubstitutionOrder);
   const forbidden = new Set(idsToHashes(request.profile.forbidden));
   const avoid = new Set(idsToHashes(request.profile.avoid));
+  const equivalenceTargets = targetTraitHashes(request.profile, request.catalog);
   const forceBasicPrimary = request.profile.forceBasicPrimary;
   const forceAttackPrimary = request.profile.forceAttackPrimary;
   const forceDefensePrimary = request.profile.forceDefensePrimary;
@@ -440,7 +444,7 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
     const secondary = sigil.secondaryTraitHash >>> 0;
     if (forbidden.has(primary) || forbidden.has(secondary)) continue;
     if (!relevant.has(primary) && !relevant.has(secondary)) continue;
-    const key = `${primary.toString(16).padStart(8, '0')}:${secondary.toString(16).padStart(8, '0')}`;
+    const key = searchFactorGroupKey(sigil, equivalenceTargets, avoid);
     const bucket = grouped.get(key) ?? [];
     bucket.push(sigil);
     grouped.set(key, bucket);
@@ -464,7 +468,10 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
 
   const classGroups = new Map<string, FactorGroup[]>();
   for (const group of groups) {
-    const totalIndexes = [group.primary, group.secondary]
+    const totalIndexes = [
+      group.primary,
+      ...(equivalenceTargets.has(group.secondary) ? [group.secondary] : [])
+    ]
       .flatMap(hash => {
         const index = allIndex.get(hash);
         return index === undefined ? [] : [index];
@@ -636,9 +643,10 @@ export function solveBuild(request: SolverRequest): SolverAnalysis {
   }
 
   const ranked = results.sort((left, right) => compareResults(left, right, primaryTargetHashes.length > 0));
+  const unique = dedupeEquivalentResults(ranked, equivalenceTargets);
   return {
-    status: ranked.length ? 'completed' : 'no-solution',
-    results: ranked.slice(0, resultLimit),
+    status: unique.length ? 'completed' : 'no-solution',
+    results: unique.slice(0, resultLimit),
     candidateTypeCount: groups.length,
     exploredStateCount
   };

@@ -52,6 +52,8 @@ export interface SolverRequest {
 export interface SolverResult {
   readonly selected: readonly RawSigil[];
   readonly signature: string;
+  readonly manuallyAdjusted?: boolean;
+  readonly forbiddenOccurrences?: number;
   readonly mandatorySatisfied: boolean;
   readonly primaryMatched: number;
   readonly primaryRequired: number;

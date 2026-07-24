@@ -1,8 +1,8 @@
 {
   "product": "Sigil Compass",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "saveFormat": "save-format-2.2",
-  "shareFormat": "GBFR-RANK-3",
+  "shareFormat": "GBFR-RANK-4",
   "catalog": "gbfr-2.0.2-6aba7fc633e8-r2",
   "catalogSource": "choeki/gbfr-relink-sim@6aba7fc633e870de65f26c01462cdbe1dd6b6baa"
 }

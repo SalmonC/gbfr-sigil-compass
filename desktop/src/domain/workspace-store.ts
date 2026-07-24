@@ -6,7 +6,7 @@ import {
 import type { ImportedInventory, RawSigil } from '../shared/contracts';
 
 const STORAGE_KEY = 'gbfr-factor-planner.workspace.v3';
-export const RANKING_VERSION = 'GBFR-RANK-3';
+export const RANKING_VERSION = 'GBFR-RANK-4';
 
 export interface CachedAnalysis {
   readonly rankingVersion: string;
@@ -18,6 +18,7 @@ export interface CachedAnalysis {
   readonly runSeed: number;
   readonly computedAt: string;
   readonly analysis: SolverAnalysis;
+  readonly manualResults?: Readonly<Record<string, SolverResult>>;
 }
 
 export interface ConfirmedLoadout {
@@ -100,7 +101,23 @@ function validateCachedAnalysis(value: unknown): CachedAnalysis | undefined {
     || cache.analysis.results.some(result => !Array.isArray(result?.selected) || result.selected.length > 12)) {
     return undefined;
   }
-  return cache as CachedAnalysis;
+  const resultSignatures = new Set(cache.analysis.results.map(result => result.signature));
+  const manualResults: Record<string, SolverResult> = {};
+  if (cache.manualResults !== undefined) {
+    if (!cache.manualResults || typeof cache.manualResults !== 'object'
+      || Array.isArray(cache.manualResults)
+      || Object.keys(cache.manualResults).length > 10) return undefined;
+    for (const [sourceSignature, manualValue] of Object.entries(cache.manualResults)) {
+      if (!resultSignatures.has(sourceSignature)) return undefined;
+      const result = normalizeSolverResult(manualValue, false);
+      if (!result || result.manuallyAdjusted !== true) return undefined;
+      manualResults[sourceSignature] = result;
+    }
+  }
+  return {
+    ...(cache as CachedAnalysis),
+    manualResults: Object.keys(manualResults).length ? manualResults : undefined
+  };
 }
 
 function validateConfirmedLoadout(value: unknown): ConfirmedLoadout | undefined {
@@ -116,11 +133,16 @@ function validateConfirmedLoadout(value: unknown): ConfirmedLoadout | undefined 
 }
 
 function normalizeConfirmedResult(value: unknown): SolverResult | undefined {
+  return normalizeSolverResult(value, true);
+}
+
+function normalizeSolverResult(value: unknown, requireMandatory: boolean): SolverResult | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const result = value as Record<string, unknown>;
   if (!Array.isArray(result.selected) || result.selected.length > 12
     || typeof result.signature !== 'string'
-    || result.mandatorySatisfied !== true
+    || typeof result.mandatorySatisfied !== 'boolean'
+    || (requireMandatory && result.mandatorySatisfied !== true)
     || typeof result.optionalMatched !== 'number'
     || !Array.isArray(result.optionalCoverage)
     || typeof result.avoidOccurrences !== 'number'
@@ -139,7 +161,7 @@ function normalizeConfirmedResult(value: unknown): SolverResult | undefined {
   return {
     selected: result.selected as SolverResult['selected'],
     signature: result.signature,
-    mandatorySatisfied: true,
+    mandatorySatisfied: result.mandatorySatisfied,
     primaryMatched: result.basicMatched,
     primaryRequired: result.basicRequired,
     exactPrimaryCoverage: result.exactBasicCoverage as boolean[],
@@ -150,7 +172,11 @@ function normalizeConfirmedResult(value: unknown): SolverResult | undefined {
     usedSlots: result.usedSlots,
     levelSum: result.levelSum,
     tieA: result.tieA,
-    tieB: result.tieB
+    tieB: result.tieB,
+    manuallyAdjusted: result.manuallyAdjusted === true || undefined,
+    forbiddenOccurrences: typeof result.forbiddenOccurrences === 'number'
+      ? result.forbiddenOccurrences
+      : undefined
   };
 }
 
@@ -310,6 +336,30 @@ export function cacheAnalysis(
   return replaceStoredProfile(workspace, profileId, current => ({ ...current, cache }));
 }
 
+export function storeManualResult(
+  workspace: WorkspaceState,
+  profileId: string,
+  sourceSignature: string,
+  result: SolverResult | undefined
+): WorkspaceState {
+  return replaceStoredProfile(workspace, profileId, current => {
+    if (!current.cache
+      || !current.cache.analysis.results.some(item => item.signature === sourceSignature)) {
+      throw new Error('找不到这套计算结果，请重新计算。');
+    }
+    const manualResults = { ...(current.cache.manualResults ?? {}) };
+    if (result) manualResults[sourceSignature] = result;
+    else delete manualResults[sourceSignature];
+    return {
+      ...current,
+      cache: {
+        ...current.cache,
+        manualResults: Object.keys(manualResults).length ? manualResults : undefined
+      }
+    };
+  });
+}
+
 export interface ReservationConflict {
   readonly profileId: string;
   readonly profileName: string;
@@ -335,6 +385,9 @@ export function confirmResult(
   result: SolverResult,
   currentInventoryFingerprint: string
 ): WorkspaceState {
+  if (!result.mandatorySatisfied) throw new Error('必须满足的技能没有全部带上，不能确认这套配装。');
+  if ((result.forbiddenOccurrences ?? 0) > 0) throw new Error('这套配装带有不能出现的技能，不能确认。');
+  if (result.selected.length < 1 || result.selected.length > 12) throw new Error('配装使用的因子数量不正确。');
   const conflicts = findReservationConflicts(workspace, profileId, result);
   if (conflicts.length) throw new Error(`这些因子已用于“${conflicts.map(item => item.profileName).join('、')}”。请先取消旧配装。`);
   const sourceRecord = workspace.profiles.find(item => item.id === profileId);
@@ -367,5 +420,10 @@ export function releaseConfirmedResult(workspace: WorkspaceState, profileId: str
 }
 
 export function cacheUsesAny(cache: CachedAnalysis | undefined, instanceKeys: ReadonlySet<string>): boolean {
-  return !!cache?.analysis.results.some(result => result.selected.some(sigil => instanceKeys.has(factorInstanceKey(sigil))));
+  if (!cache) return false;
+  const results = [
+    ...cache.analysis.results,
+    ...Object.values(cache.manualResults ?? {})
+  ];
+  return results.some(result => result.selected.some(sigil => instanceKeys.has(factorInstanceKey(sigil))));
 }

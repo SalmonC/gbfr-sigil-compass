@@ -1,6 +1,9 @@
 import highsLoader from 'highs';
 import type { RawSigil } from '../shared/contracts';
 import type { SolverAnalysis, SolverRequest, SolverResult } from './models';
+import {
+  dedupeEquivalentResults, searchFactorGroupKey, targetTraitHashes
+} from './result-equivalence.ts';
 
 interface Group {
   readonly key: string;
@@ -142,6 +145,7 @@ export async function solveBuildMilp(
   const substitution = idsToHashes(request.profile.basicSubstitutionOrder);
   const forbidden = new Set(idsToHashes(request.profile.forbidden));
   const avoid = new Set(idsToHashes(request.profile.avoid));
+  const equivalenceTargets = targetTraitHashes(request.profile, request.catalog);
   const forcedBasic = request.profile.forceBasicPrimary;
   const allowSubstitution = forcedBasic && request.profile.allowBasicSubstitution;
   const primaryTargets = [
@@ -167,7 +171,7 @@ export async function solveBuildMilp(
     const secondary = sigil.secondaryTraitHash >>> 0;
     if (forbidden.has(primary) || forbidden.has(secondary)) continue;
     if (!relevant.has(primary) && !relevant.has(secondary)) continue;
-    const key = `${primary.toString(16).padStart(8, '0')}:${secondary.toString(16).padStart(8, '0')}`;
+    const key = searchFactorGroupKey(sigil, equivalenceTargets, avoid);
     const bucket = grouped.get(key) ?? [];
     bucket.push(sigil);
     grouped.set(key, bucket);
@@ -384,9 +388,10 @@ export async function solveBuildMilp(
     noGoods.push(`${differenceTerms.join(' + ').replaceAll('+ -', '-')} >= ${1 - constant}`);
   }
 
+  const unique = dedupeEquivalentResults(results, equivalenceTargets);
   return {
-    status: results.length ? 'completed' : 'no-solution',
-    results,
+    status: unique.length ? 'completed' : 'no-solution',
+    results: unique,
     candidateTypeCount: groups.length,
     exploredStateCount: 0
   };

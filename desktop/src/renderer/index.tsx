@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle, Archive, BarChart3, Check, CheckCircle2, ChevronDown, ExternalLink,
   ChevronLeft, ChevronRight, Clipboard, Database, Eraser, FileUp, LayoutList,
-  ListChecks, LockKeyhole, MoreHorizontal, MoveDown, MoveUp, Play, Plus, RotateCcw,
+  ListChecks, LockKeyhole, MoreHorizontal, MoveDown, MoveUp, Pencil, Play, Plus, RotateCcw,
   Search, ShieldCheck, Sparkles, Trash2, X
 } from 'lucide-react';
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -13,17 +13,21 @@ import type {
 } from '../domain/models';
 import { decodeProfile, encodeProfile } from '../domain/profile-codec';
 import { factorInstanceKey, inventoryFingerprint } from '../domain/inventory-identity.ts';
+import { evaluateAdjustedResult, hasSamePhysicalSelection } from '../domain/result-adjustment.ts';
+import { externalTraitLevelRule } from '../domain/trait-level-rules';
 import {
   addStoredProfile, cacheAnalysis, confirmResult, createAnalysisContext, createWorkspace,
   deleteStoredProfile, findReservationConflicts, getCacheStatus, releaseConfirmedResult,
-  pruneInvalidAnalysisCaches, replaceStoredProfile, storeWorkspace, updateStoredDraft, type CacheStatus,
+  pruneInvalidAnalysisCaches, replaceStoredProfile, storeManualResult, storeWorkspace, updateStoredDraft, type CacheStatus,
   type StoredProfile, type WorkspaceState
 } from '../domain/workspace-store.ts';
 import {
   initialAnalysisRunState, reduceAnalysisState
 } from '../domain/analysis-state';
-import type { EngineHello, ImportedInventory } from '../shared/contracts';
-import { FactorCard, type FactorCardTag } from './components/factor-card';
+import type { EngineHello, ImportedInventory, RawSigil } from '../shared/contracts';
+import {
+  FactorCard, type FactorCardTag, type FactorTraitOption
+} from './components/factor-card';
 import { AccessibleTabs, Dialog, HelpPopover } from './components/primitives';
 import { TraitIcon } from './components/trait';
 import './tokens.css';
@@ -34,6 +38,11 @@ type Domain = 'mandatory' | 'basicPrimary' | 'attackPrimary' | 'defensePrimary' 
 type PageSection = 'targets' | 'results';
 type AppPage = 'planner' | 'inventory' | 'loadouts';
 type SaveStatus = 'saving' | 'saved' | 'failed';
+type FactorPickerState = {
+  readonly sourceSignature: string;
+  readonly mode: 'add' | 'replace';
+  readonly index?: number;
+};
 
 const catalog = catalogJson as CatalogData;
 const fixture = fixtureJson as BuildProfile;
@@ -182,14 +191,72 @@ const primaryDomains = new Set<Domain>(['basicPrimary', 'attackPrimary', 'defens
 const duplicateDomains = new Set<Domain>(['mandatory', 'basicPrimary', 'attackPrimary', 'defensePrimary', 'optional']);
 
 function FactorGrid({
-  result, profile, traitById, traitByHash, mode = 'result'
+  result, profile, traitById, traitByHash, mode = 'result', editing
 }: {
   result: SolverResult;
   profile: BuildProfile;
   traitById: ReadonlyMap<string, CatalogTrait>;
   traitByHash: ReadonlyMap<number, CatalogTrait>;
   mode?: 'result' | 'confirmed';
+  editing?: {
+    readonly availableInventory: readonly RawSigil[];
+    readonly onSelectInstance: (index: number, instanceKey: string) => void;
+    readonly onReplace: (index: number) => void;
+    readonly onDelete: (index: number) => void;
+    readonly onAdd: () => void;
+  };
 }) {
+  const targetIds = new Set([
+    ...profile.mandatory,
+    ...profile.basicPrimary,
+    ...profile.attackPrimary,
+    ...profile.defensePrimary,
+    ...profile.optional
+  ]);
+  const forbiddenHashes = new Set(profile.forbidden.flatMap(id => {
+    const trait = traitById.get(id);
+    return trait ? [Number.parseInt(trait.hash.slice(2), 16) >>> 0] : [];
+  }));
+  const selectableOptions = (
+    sigil: RawSigil,
+    index: number,
+    kind: 'primary' | 'secondary'
+  ): FactorTraitOption[] => {
+    if (!editing) return [];
+    const currentKey = factorInstanceKey(sigil);
+    const usedElsewhere = new Set(result.selected
+      .filter((_, selectedIndex) => selectedIndex !== index)
+      .map(factorInstanceKey));
+    return editing.availableInventory
+      .filter(candidate => {
+        const candidateKey = factorInstanceKey(candidate);
+        if (usedElsewhere.has(candidateKey)) return false;
+        if (forbiddenHashes.has(candidate.primaryTraitHash >>> 0)
+          || forbiddenHashes.has(candidate.secondaryTraitHash >>> 0)) return false;
+        return kind === 'primary'
+          ? (candidate.secondaryTraitHash >>> 0) === (sigil.secondaryTraitHash >>> 0)
+          : (candidate.primaryTraitHash >>> 0) === (sigil.primaryTraitHash >>> 0);
+      })
+      .sort((left, right) => {
+        if (factorInstanceKey(left) === currentKey) return -1;
+        if (factorInstanceKey(right) === currentKey) return 1;
+        const leftHash = kind === 'primary' ? left.primaryTraitHash : left.secondaryTraitHash;
+        const rightHash = kind === 'primary' ? right.primaryTraitHash : right.secondaryTraitHash;
+        const leftName = traitByHash.get(leftHash >>> 0)?.nameZh ?? '未知词条';
+        const rightName = traitByHash.get(rightHash >>> 0)?.nameZh ?? '未知词条';
+        return leftName.localeCompare(rightName, 'zh-CN')
+          || right.sigilLevel - left.sigilLevel
+          || left.inventorySlotId - right.inventorySlotId;
+      })
+      .map(candidate => {
+        const hash = kind === 'primary' ? candidate.primaryTraitHash : candidate.secondaryTraitHash;
+        const trait = traitByHash.get(hash >>> 0);
+        return {
+          value: factorInstanceKey(candidate),
+          label: `${trait?.nameZh ?? '未知词条'} · Lv ${candidate.sigilLevel} · 位置 ${candidate.inventorySlotId}`
+        };
+      });
+  };
   const substitutionRemaining = new Map<number, number>();
   result.basicSubstitutionUsage.forEach((count, index) => {
     const id = profile.basicSubstitutionOrder[index];
@@ -202,22 +269,114 @@ function FactorGrid({
       const secondary = traitByHash.get(sigil.secondaryTraitHash >>> 0);
       const primaryAvoid = !!primary && profile.avoid.includes(primary.id);
       const secondaryAvoid = !!secondary && profile.avoid.includes(secondary.id);
+      const primaryNonTarget = !primary || !targetIds.has(primary.id);
+      const secondaryNonTarget = !secondary || !targetIds.has(secondary.id);
       const substitutionCount = substitutionRemaining.get(sigil.primaryTraitHash >>> 0) ?? 0;
       const isSubstitution = substitutionCount > 0;
       if (isSubstitution) substitutionRemaining.set(sigil.primaryTraitHash >>> 0, substitutionCount - 1);
       const primaryTags: FactorCardTag[] = [];
       const secondaryTags: FactorCardTag[] = [];
       if (isSubstitution) primaryTags.push({ label: '替代主词条', tone: 'warning' });
+      if (primaryNonTarget && !primaryAvoid) primaryTags.push({ label: '未列入目标', tone: 'muted' });
+      if (secondaryNonTarget && !secondaryAvoid) secondaryTags.push({ label: '未列入目标', tone: 'muted' });
       if (primaryAvoid) primaryTags.push({ label: '尽量避开', tone: 'danger' });
       if (secondaryAvoid) secondaryTags.push({ label: '尽量避开', tone: 'danger' });
+      const instanceKey = factorInstanceKey(sigil);
       return <FactorCard key={factorInstanceKey(sigil)}
         sigil={sigil} primary={primary} secondary={secondary}
         label={`因子 ${index + 1}`} mode={mode}
         primaryTags={primaryTags} secondaryTags={secondaryTags}
         hasIssue={primaryAvoid || secondaryAvoid || isSubstitution}
-        footerStart={`库存位置 ${sigil.inventorySlotId}`} />;
+        footerStart={`库存位置 ${sigil.inventorySlotId}`}
+        headerActions={editing && <span className="factor-card-actions">
+          <button type="button" aria-label={`更换因子 ${index + 1}`} title="更换整枚因子"
+            onClick={() => editing.onReplace(index)}><Pencil size={13} /></button>
+          <button type="button" aria-label={`删除因子 ${index + 1}`} title="删除这枚因子"
+            onClick={() => editing.onDelete(index)}><Trash2 size={13} /></button>
+        </span>}
+        primarySelection={editing ? {
+          value: instanceKey,
+          options: selectableOptions(sigil, index, 'primary'),
+          onChange: value => editing.onSelectInstance(index, value)
+        } : undefined}
+        secondarySelection={editing ? {
+          value: instanceKey,
+          options: selectableOptions(sigil, index, 'secondary'),
+          onChange: value => editing.onSelectInstance(index, value)
+        } : undefined} />;
     })}
+    {editing && result.selected.length < 12 && <button type="button" className="factor-add-card"
+      onClick={editing.onAdd}><Plus size={19} /><strong>添加因子</strong><span>从未占用的库存中选择</span></button>}
   </div>;
+}
+
+function SkillLevelSummary({
+  result, profile, traitByHash
+}: {
+  result: SolverResult;
+  profile: BuildProfile;
+  traitByHash: ReadonlyMap<number, CatalogTrait>;
+}) {
+  const targetOrder = [
+    ...profile.mandatory,
+    ...profile.basicPrimary,
+    ...profile.attackPrimary,
+    ...profile.defensePrimary,
+    ...profile.optional
+  ];
+  const targetIndex = new Map<string, number>();
+  targetOrder.forEach((id, index) => {
+    if (!targetIndex.has(id)) targetIndex.set(id, index);
+  });
+  const avoid = new Set(profile.avoid);
+  const levels = new Map<number, {
+    hash: number;
+    trait: CatalogTrait | undefined;
+    level: number;
+    count: number;
+  }>();
+  for (const sigil of result.selected) {
+    for (const hash of [sigil.primaryTraitHash >>> 0, sigil.secondaryTraitHash >>> 0]) {
+      const current = levels.get(hash) ?? {
+        hash,
+        trait: traitByHash.get(hash),
+        level: 0,
+        count: 0
+      };
+      current.level += sigil.sigilLevel;
+      current.count += 1;
+      levels.set(hash, current);
+    }
+  }
+  const entries = [...levels.values()].sort((left, right) => {
+    const leftTarget = left.trait ? targetIndex.get(left.trait.id) : undefined;
+    const rightTarget = right.trait ? targetIndex.get(right.trait.id) : undefined;
+    if (leftTarget !== undefined || rightTarget !== undefined) {
+      if (leftTarget === undefined) return 1;
+      if (rightTarget === undefined) return -1;
+      if (leftTarget !== rightTarget) return leftTarget - rightTarget;
+    }
+    return (left.trait?.nameZh ?? '').localeCompare(right.trait?.nameZh ?? '', 'zh-CN');
+  });
+  return <section className="skill-level-summary" aria-label="本套配装的技能等级">
+    <header><strong>技能汇总</strong><span>相同技能的等级已经合并</span></header>
+    <div>
+      {entries.map(entry => {
+        const trait = entry.trait;
+        const externalRule = externalTraitLevelRule(trait?.id);
+        const isTarget = !!trait && targetIndex.has(trait.id);
+        const isAvoid = !!trait && avoid.has(trait.id);
+        return <span key={trait?.hash ?? `unknown-${entry.hash}`}
+          className={`skill-level-chip ${!isTarget ? 'non-target' : ''} ${isAvoid ? 'avoid' : ''}`}
+          title={externalRule?.explanation}>
+          <TraitIcon trait={trait} size={20} />
+          <b>{trait?.nameZh ?? '未知词条'}</b>
+          <em>{externalRule ? externalRule.shortLabel : `Lv ${entry.level}`}</em>
+          {externalRule && entry.count > 1 && <small>×{entry.count}</small>}
+        </span>;
+      })}
+    </div>
+  </section>;
 }
 
 function confirmedDisplayNames(profiles: readonly StoredProfile[]): Map<string, string> {
@@ -268,6 +427,8 @@ function cacheStatusText(status: CacheStatus, hasCache: boolean): string {
 
 function resultIssueLabels(result: SolverResult, profile: BuildProfile): string[] {
   const issues: string[] = [];
+  if (!result.mandatorySatisfied) issues.push('必须满足的技能没有全部带上');
+  if ((result.forbiddenOccurrences ?? 0) > 0) issues.push('带有不能出现的技能');
   if (result.primaryMatched < result.primaryRequired) issues.push('优先主词条没有全部满足');
   if (result.basicSubstitutionUsage.some(count => count > 0)) issues.push('使用了替代主词条');
   if (result.avoidOccurrences > 0) issues.push('带有尽量避开的技能');
@@ -287,7 +448,7 @@ function firstRankDifference(current: SolverResult, previous: SolverResult | und
   if (current.avoidOccurrences !== previous.avoidOccurrences) return '需避开技能数量';
   if (current.optionalCoverage.some((value, index) => value !== previous.optionalCoverage[index])) return '可选目标顺序';
   if (current.usedSlots !== previous.usedSlots) return '使用因子数';
-  if (current.levelSum !== previous.levelSum) return '因子等级合计';
+  if (current.levelSum !== previous.levelSum) return '因子强化等级';
   return '同分后的稳定顺序';
 }
 
@@ -307,6 +468,8 @@ function App() {
   const [importing, setImporting] = useState(false);
   const [analysisRun, dispatchAnalysis] = useReducer(reduceAnalysisState, initialAnalysisRunState);
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
+  const [factorPicker, setFactorPicker] = useState<FactorPickerState | null>(null);
+  const [factorPickerSearch, setFactorPickerSearch] = useState('');
   const [notice, setNotice] = useState('已载入截图测试方案。读取存档后即可分析。');
   const [shareCode, setShareCode] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
@@ -800,6 +963,70 @@ function App() {
     releaseLoadoutFor(activeRecord.id);
   }
 
+  function applyManualSelection(
+    source: SolverResult,
+    current: SolverResult,
+    selected: readonly RawSigil[],
+    message: string
+  ): void {
+    if (!inventory || !analysisContext || cacheStatus !== 'current') {
+      setNotice('当前结果已经过期，请重新计算后再调整。');
+      return;
+    }
+    const allowedKeys = new Set(analysisContext.availableInventory.map(factorInstanceKey));
+    const selectedKeys = selected.map(factorInstanceKey);
+    if (new Set(selectedKeys).size !== selectedKeys.length) {
+      setNotice('同一枚因子不能在一套配装中重复使用。');
+      return;
+    }
+    if (selectedKeys.some(key => !allowedKeys.has(key))) {
+      setNotice('所选因子已经不在可用库存中，请重新计算。');
+      return;
+    }
+    try {
+      const adjusted = evaluateAdjustedResult(source, profile, catalog, selected);
+      const stored = hasSamePhysicalSelection(source.selected, selected) ? undefined : adjusted;
+      updateWorkspace(currentWorkspace =>
+        storeManualResult(currentWorkspace, activeRecord.id, source.signature, stored));
+      setNotice(stored ? `${message}；目标完成情况已更新。` : '已恢复为原计算结果。');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '无法调整这套配装。');
+    }
+  }
+
+  function replaceManualInstance(
+    source: SolverResult,
+    current: SolverResult,
+    index: number,
+    instanceKey: string
+  ): void {
+    const replacement = analysisContext?.availableInventory
+      .find(sigil => factorInstanceKey(sigil) === instanceKey);
+    if (!replacement) {
+      setNotice('这枚因子已经不可用，请重新选择。');
+      return;
+    }
+    const selected = current.selected.map((sigil, selectedIndex) =>
+      selectedIndex === index ? replacement : sigil);
+    applyManualSelection(source, current, selected, `已更换因子 ${index + 1}`);
+  }
+
+  function deleteManualInstance(source: SolverResult, current: SolverResult, index: number): void {
+    applyManualSelection(
+      source,
+      current,
+      current.selected.filter((_, selectedIndex) => selectedIndex !== index),
+      `已删除因子 ${index + 1}`
+    );
+  }
+
+  function resetManualResult(sourceSignature: string): void {
+    updateWorkspace(current =>
+      storeManualResult(current, activeRecord.id, sourceSignature, undefined));
+    setFactorPicker(null);
+    setNotice('已恢复为原计算结果。');
+  }
+
   const recordStatus = useMemo(() => new Map(workspace.profiles.map(record => {
     if (record.confirmed) {
       const missing = inventory
@@ -817,7 +1044,11 @@ function App() {
   const canAnalyze = !!inventory
     && targetCount > 0
     && analysisRun.phase !== 'running';
-  const selectedResult = analysis?.results[Math.min(selectedResultIndex, Math.max(0, analysis.results.length - 1))];
+  const selectedSourceResult = analysis?.results[
+    Math.min(selectedResultIndex, Math.max(0, analysis.results.length - 1))];
+  const selectedResult = selectedSourceResult
+    ? activeRecord.cache?.manualResults?.[selectedSourceResult.signature] ?? selectedSourceResult
+    : undefined;
   const confirmedRecords = workspace.profiles.filter(record => record.confirmed);
   const loadoutNames = useMemo(() => confirmedDisplayNames(workspace.profiles), [workspace.profiles]);
   const selectedLoadoutRecord = confirmedRecords.find(record => record.id === selectedLoadoutProfileId)
@@ -956,9 +1187,16 @@ function App() {
       </button>
       <HelpPopover label="存档位置" text={'Windows 默认位置：%LOCALAPPDATA%\\GBFR\\Saved\\SaveGames\\。通常选择 SaveData1.dat；如果有多个 SaveData*.dat，请选择修改时间最新的一个。应用只读取，不会修改存档；操作前仍建议自行备份。'} />
       <div className="inventory-summary">{inventory
-        ? <><Database size={17} /><strong>{inventory.sigils.length}</strong> 个双词条因子 · {analysisContext?.availableInventory.length ?? 0} 个当前可用
-          {inventory.cachedAt && <span>· 读取于 {new Date(inventory.cachedAt).toLocaleString('zh-CN')}</span>}</>
-        : '尚未读取存档'}</div>
+        ? <>
+          <span className="inventory-summary-line">
+            <Database size={17} /><strong>{inventory.sigils.length}</strong>
+            个双词条因子 · {analysisContext?.availableInventory.length ?? 0} 个当前可用
+          </span>
+          {inventory.cachedAt && <span className="inventory-summary-line">
+            · 读取于 {new Date(inventory.cachedAt).toLocaleString('zh-CN')}
+          </span>}
+        </>
+        : <span className="inventory-summary-line">尚未读取存档</span>}</div>
       {appPage === 'planner' && <label className="solve-time-limit">
         <span>计算上限</span>
         <input type="number" min={MIN_SOLVE_TIME_LIMIT_SECONDS} max={MAX_SOLVE_TIME_LIMIT_SECONDS}
@@ -1110,6 +1348,8 @@ function App() {
       <div className="results-heading">
         <div><h2>配装方案</h2><p>一次查看一套方案。每张卡对应存档中的一枚具体因子。</p></div>
         <div className="results-heading-actions">
+          {analysis && <HelpPopover label="结果标记"
+            text="灰色词条没有出现在任何配装目标中；红色提示表示尽量避开或不能出现的问题，优先级高于灰色标记。" />}
           {analysis && <HelpPopover label="本次计算"
             text={`本次从 ${analysis.candidateTypeCount} 种相关因子中检索了 ${analysis.exploredStateCount.toLocaleString('zh-CN')} 个组合状态。排序时先满足必须项和已开启优先满足的主词条，再比较可选目标、需避开的技能、因子数量与等级。`} />}
           {inventory && analysis && <button className="secondary-action compact" type="button" disabled={analysisRun.phase === 'running'} onClick={() => void analyze(true)}>
@@ -1126,24 +1366,56 @@ function App() {
       {analysis?.status === 'no-solution' && <div className="no-solution"><AlertTriangle size={22} />没有方案能同时满足所有必须项，并避开不能出现的技能。</div>}
       {analysis?.status === 'completed' && <>
         <AccessibleTabs ariaLabel="切换配装方案" className="result-tabs" itemClassName="result-tab"
-          value={selectedResult?.signature ?? ''} panelId="selected-result" tabIdPrefix="result-tab"
+          value={selectedSourceResult?.signature ?? ''} panelId="selected-result" tabIdPrefix="result-tab"
           onChange={signature => {
             const index = analysis.results.findIndex(result => result.signature === signature);
-            if (index >= 0) setSelectedResultIndex(index);
+            if (index >= 0) {
+              setSelectedResultIndex(index);
+              setFactorPicker(null);
+            }
           }}
           items={analysis.results.map((result, index) => {
-            const issues = resultIssueLabels(result, profile);
+            const displayed = activeRecord.cache?.manualResults?.[result.signature] ?? result;
+            const issues = resultIssueLabels(displayed, profile);
             return {
               id: result.signature,
-              label: <>{issues.length > 0 && <AlertTriangle size={14} />}方案 {index + 1}</>,
-              className: issues.length ? 'has-issue' : '',
+              label: <>{issues.length > 0 && <AlertTriangle size={14} />}
+                {displayed.manuallyAdjusted && <Pencil size={13} />}方案 {index + 1}</>,
+              className: `${issues.length ? 'has-issue' : ''} ${displayed.manuallyAdjusted ? 'is-manual' : ''}`.trim(),
               title: issues.length ? issues.join('；') : '没有明显问题'
             };
           })} />
 
-        {selectedResult && (() => {
+        {selectedResult && selectedSourceResult && (() => {
           const issues = resultIssueLabels(selectedResult, profile);
           const confirmedHere = activeRecord.confirmed?.resultSignature === selectedResult.signature;
+          const canEdit = !!inventory && !!analysisContext && cacheStatus === 'current';
+          const selectedKeys = new Set(selectedResult.selected.map(factorInstanceKey));
+          const forbiddenHashes = new Set(profile.forbidden.flatMap(id => {
+            const trait = traitById.get(id);
+            return trait ? [Number.parseInt(trait.hash.slice(2), 16) >>> 0] : [];
+          }));
+          const normalizedPickerSearch = factorPickerSearch.trim().toLocaleLowerCase('zh-CN');
+          const pickerCandidates = factorPicker?.sourceSignature === selectedSourceResult.signature
+            ? (analysisContext?.availableInventory ?? [])
+              .filter(sigil => {
+                const key = factorInstanceKey(sigil);
+                const replacingKey = factorPicker.mode === 'replace' && factorPicker.index !== undefined
+                  ? factorInstanceKey(selectedResult.selected[factorPicker.index]!)
+                  : null;
+                if (selectedKeys.has(key) && key !== replacingKey) return false;
+                if (key === replacingKey) return false;
+                if (forbiddenHashes.has(sigil.primaryTraitHash >>> 0)
+                  || forbiddenHashes.has(sigil.secondaryTraitHash >>> 0)) return false;
+                if (!normalizedPickerSearch) return true;
+                const primary = traitByHash.get(sigil.primaryTraitHash >>> 0)?.nameZh ?? '未知词条';
+                const secondary = traitByHash.get(sigil.secondaryTraitHash >>> 0)?.nameZh ?? '未知词条';
+                return `${primary} ${secondary} ${sigil.sigilLevel} ${sigil.inventorySlotId}`
+                  .toLocaleLowerCase('zh-CN').includes(normalizedPickerSearch);
+              })
+              .sort((left, right) => right.sigilLevel - left.sigilLevel
+                || left.inventorySlotId - right.inventorySlotId)
+            : [];
           return <article className="result-detail" role="tabpanel" id="selected-result"
             aria-labelledby={`result-tab-${selectedResultIndex}`}>
             <div className={`result-problems ${issues.length ? 'visible' : 'clear'}`}>
@@ -1152,18 +1424,40 @@ function App() {
                 : <><CheckCircle2 size={19} /><div><strong>没有明显问题</strong><span>指定目标和避开条件均按当前结果处理。</span></div></>}
             </div>
 
+            {selectedResult.manuallyAdjusted && <div className="manual-result-note">
+              <Pencil size={15} />
+              <span>这是方案 {selectedResultIndex + 1} 的手动调整版，不会改变原来的计算排名。</span>
+              <button type="button" onClick={() => resetManualResult(selectedSourceResult.signature)}>
+                恢复计算结果
+              </button>
+            </div>}
+
             <div className="result-summary">
               <div><strong>{selectedResult.usedSlots}</strong><span>枚因子</span></div>
-              <div><strong>{selectedResult.levelSum}</strong><span>等级合计</span></div>
               <div><strong>{selectedResult.optionalMatched}/{selectedResult.optionalCoverage.length}</strong><span>可选目标</span></div>
               {hasForcedPrimary && <div><strong>{selectedResult.primaryMatched}/{selectedResult.primaryRequired}</strong><span>优先主词条</span></div>}
-              <span className="rank-reason">当前排位
+              {!selectedResult.manuallyAdjusted && <span className="rank-reason">当前排位
                 <HelpPopover label="当前排位"
                   text={`与上一套方案相比，主要差别是：${firstRankDifference(selectedResult, analysis.results[selectedResultIndex - 1], hasForcedPrimary)}。`} />
-              </span>
+              </span>}
             </div>
 
-            <FactorGrid result={selectedResult} profile={profile} traitById={traitById} traitByHash={traitByHash} />
+            <FactorGrid result={selectedResult} profile={profile} traitById={traitById} traitByHash={traitByHash}
+              editing={canEdit ? {
+                availableInventory: analysisContext.availableInventory,
+                onSelectInstance: (index, key) =>
+                  replaceManualInstance(selectedSourceResult, selectedResult, index, key),
+                onReplace: index => {
+                  setFactorPickerSearch('');
+                  setFactorPicker({ sourceSignature: selectedSourceResult.signature, mode: 'replace', index });
+                },
+                onDelete: index => deleteManualInstance(selectedSourceResult, selectedResult, index),
+                onAdd: () => {
+                  setFactorPickerSearch('');
+                  setFactorPicker({ sourceSignature: selectedSourceResult.signature, mode: 'add' });
+                }
+              } : undefined} />
+            <SkillLevelSummary result={selectedResult} profile={profile} traitByHash={traitByHash} />
 
             <div className="confirm-row">
               <HelpPopover label="确认配装" text="确认后，这些具体因子会留给当前方案。计算其他角色时会排除它们；同词条的其他因子不受影响。" />
@@ -1173,11 +1467,61 @@ function App() {
                   {confirmedMissingCount ? `已确认，但有 ${confirmedMissingCount} 枚因子在当前库存中找不到` : '已确认这套配装'}
                 </span>
                   <button className="secondary-action" type="button" onClick={releaseLoadout}>取消确认</button></>
-                : <button className="primary-action" type="button" disabled={!inventory || cacheStatus !== 'current'}
+                : <button className="primary-action" type="button"
+                  disabled={!inventory || cacheStatus !== 'current' || !selectedResult.mandatorySatisfied
+                    || (selectedResult.forbiddenOccurrences ?? 0) > 0 || selectedResult.selected.length === 0}
                   onClick={() => confirmSelectedResult(selectedResult)}>
                   <CheckCircle2 size={17} />{activeRecord.confirmed ? '改用这套配装' : '确认这套配装'}
                 </button>}
             </div>
+
+            <Dialog open={factorPicker?.sourceSignature === selectedSourceResult.signature}
+              onClose={() => setFactorPicker(null)}
+              labelledBy="factor-picker-title" className="factor-picker-dialog">
+              <header>
+                <div><h2 id="factor-picker-title">
+                  {factorPicker?.mode === 'add' ? '添加因子' : `更换因子 ${(factorPicker?.index ?? 0) + 1}`}
+                </h2>
+                  <p>只显示当前库存中未被这套方案或其他已确认配装占用的因子。</p></div>
+                <button type="button" className="icon-action" aria-label="关闭" onClick={() => setFactorPicker(null)}>
+                  <X size={18} />
+                </button>
+              </header>
+              <label className="factor-picker-search">
+                <Search size={17} /><span className="sr-only">搜索可用因子</span>
+                <input data-dialog-initial value={factorPickerSearch}
+                  placeholder="搜索主词条、副词条、等级或库存位置"
+                  onChange={event => setFactorPickerSearch(event.target.value)} />
+              </label>
+              <div className="factor-picker-list">
+                {pickerCandidates.length
+                  ? pickerCandidates.map(sigil => {
+                    const primary = traitByHash.get(sigil.primaryTraitHash >>> 0);
+                    const secondary = traitByHash.get(sigil.secondaryTraitHash >>> 0);
+                    return <button type="button" className="factor-picker-option"
+                      key={factorInstanceKey(sigil)}
+                      onClick={() => {
+                        if (factorPicker?.mode === 'replace' && factorPicker.index !== undefined) {
+                          replaceManualInstance(
+                            selectedSourceResult, selectedResult, factorPicker.index, factorInstanceKey(sigil));
+                        } else {
+                          applyManualSelection(
+                            selectedSourceResult,
+                            selectedResult,
+                            [...selectedResult.selected, sigil],
+                            '已添加一枚因子'
+                          );
+                        }
+                        setFactorPicker(null);
+                      }}>
+                      <span><TraitIcon trait={primary} size={26} /><b>{primary?.nameZh ?? '未知词条'}</b></span>
+                      <span><TraitIcon trait={secondary} size={22} /><b>{secondary?.nameZh ?? '未知词条'}</b></span>
+                      <small>因子 Lv {sigil.sigilLevel} · 库存位置 {sigil.inventorySlotId}</small>
+                    </button>;
+                  })
+                  : <div className="factor-picker-empty">没有符合条件的可用因子。</div>}
+              </div>
+            </Dialog>
           </article>;
         })()}
       </>}
