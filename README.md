@@ -4,13 +4,13 @@
 
 《碧蓝幻想 Relink》V+ 因子配装工具。它会只读解析本地存档，根据现有库存计算配装方案，适合因子较多、不想逐页翻找的玩家。
 
-> 当前测试版为 Windows x64 `v0.3.0-beta.1`；稳定版为 `v0.2.3`。项目是非官方玩家工具，与 Cygames、发行商及平台方无关。
+> 当前稳定版为 Windows x64 `v0.3.0`。项目是非官方玩家工具，与 Cygames、发行商及平台方无关。
 
 ## 使用教程
 
 ### 1. 下载并启动
 
-1. 打开 [Releases](https://github.com/SalmonC/gbfr-sigil-compass/releases)，下载 `Sigil-Compass-0.3.0-beta.1-win-x64-portable.zip`。
+1. 打开 [Releases](https://github.com/SalmonC/gbfr-sigil-compass/releases)，下载 `Sigil-Compass-0.3.0-win-x64-portable.zip`。
 2. 将压缩包完整解压到普通文件夹，不要直接在压缩包内运行。
 3. 双击 `Sigil-Compass.exe`。
 
